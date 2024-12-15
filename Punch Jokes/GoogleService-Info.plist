@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>358093387251-bvkcf76s924rhsdiunftn4f9sp6mggis.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.358093387251-bvkcf76s924rhsdiunftn4f9sp6mggis</string>
+	<key>API_KEY</key>
+	<string>AIzaSyB_RcPaK8rviL5Uhgg8DY4RTdKD_Z1kiO4</string>
+	<key>GCM_SENDER_ID</key>
+	<string>358093387251</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>Punch-Jokes.Punch-Jokes</string>
+	<key>PROJECT_ID</key>
+	<string>dark-jokes-6d82e</string>
+	<key>STORAGE_BUCKET</key>
+	<string>dark-jokes-6d82e.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:358093387251:ios:679845ad525c4835b24e86</string>
+</dict>
+</plist>
