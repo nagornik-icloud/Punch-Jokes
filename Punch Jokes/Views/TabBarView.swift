@@ -15,13 +15,16 @@ struct TabBarView: View {
     @EnvironmentObject var appService: AppService
     
     @State var loginScreenShow = false
-    
+    var imageCircle: UIImage? {
+        userService.userImage
+    }
     
     var body: some View {
 
         ZStack {
-
-            Group {
+            
+            
+            ZStack {
                 switch appService.shownScreen {
                 case .onboarding:
                     OnboardingView()
@@ -40,64 +43,74 @@ struct TabBarView: View {
                     AccountView()
                 }
             }
-//            .cornerRadius(40)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black)
-            
-            .overlay(alignment: .bottom) {
-                if appService.showTabBar {
-                    HStack {
-                        TabBarButton(
-                            label: "Все шутки",
-                            icon: "list.bullet",
-                            isSelected: appService.shownScreen == .allJokes
-                        ) {
-                            appService.shownScreen = .allJokes
-                        }
-                        
-                        TabBarButton(
-                            label: "Избранное",
-                            icon: "heart",
-                            isSelected: appService.shownScreen == .favorites
-                        ) {
-                            appService.shownScreen = .favorites
-                        }
-                        
-                        TabBarButton(
-                            label: "Мои шутки",
-                            icon: "person",
-                            isSelected: appService.shownScreen == .myJokes
-                        ) {
-                            appService.shownScreen = .myJokes
-                            
-                        }
-                        
-                        TabBarButton(
-                            label: "Настройки",
-                            icon: "gearshape",
-                            isSelected: appService.shownScreen == .settings
-                        ) {
-                            appService.shownScreen = .settings
-                        }
-                    }
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(20)
-                    .offset(y: loginScreenShow ? 300 : 0)
-                }
-            }
-            .rotation3DEffect(
-                Angle(degrees: loginScreenShow ? 40 : 0),
-                axis: (x: 1, y: 0, z: 0)
-            )
-            .blur(radius: loginScreenShow ? 10 : 0)
+            // picturecicle
             .overlay(alignment: .topTrailing) {
                 if appService.shownScreen != .onboarding && appService.shownScreen != .account {
                     pictureCircle
                 }
             }
-            .animation(.spring(duration: 2), value: loginScreenShow)
-
+            // tabbar
+            .overlay(alignment: .bottom) {
+                Group {
+                    if appService.showTabBar {
+                        HStack {
+                            TabBarButton(
+                                label: "Все шутки",
+                                icon: "list.bullet",
+                                isSelected: appService.shownScreen == .allJokes
+                            ) {
+                                appService.shownScreen = .allJokes
+                            }
+                            
+                            TabBarButton(
+                                label: "Избранное",
+                                icon: "heart",
+                                isSelected: appService.shownScreen == .favorites
+                            ) {
+                                appService.shownScreen = .favorites
+                            }
+                            
+                            TabBarButton(
+                                label: "Мои шутки",
+                                icon: "person",
+                                isSelected: appService.shownScreen == .myJokes
+                            ) {
+                                appService.shownScreen = .myJokes
+                                
+                            }
+                            
+                            TabBarButton(
+                                label: "Настройки",
+                                icon: "gearshape",
+                                isSelected: appService.shownScreen == .settings
+                            ) {
+                                appService.shownScreen = .settings
+                            }
+                        }
+                        .background(Color(UIColor.systemGray6))
+                        .cornerRadius(20)
+                        .offset(y: loginScreenShow ? 300 : 0)
+                    }
+                }
+                .rotation3DEffect(
+                    Angle(degrees: loginScreenShow ? 40 : 0),
+                    axis: (x: 1, y: 0, z: 0)
+                )
+                .blur(radius: loginScreenShow ? 10 : 0)
+                
+                .animation(.spring(duration: 2), value: loginScreenShow)
+            }
+            .blur(radius: userService.loaded ? 0 : 5)
+            // Показываем LoadingView поверх всего контента во время инициализации
+            if !userService.loaded {
+                LoadingView()
+                    .transition(.opacity)
+            }
+            
         }
+        .frame(width: .infinity, height: .infinity)
+        .animation(.spring(duration: 1), value: userService.loaded)
+        
         
     
     }
@@ -108,13 +121,23 @@ struct TabBarView: View {
             appService.shownScreen = .account
             appService.showTabBar = false
         } label: {
-            if let image = userService.userImage {
+            if let image = imageCircle {
                 Image(uiImage: image)
+                    .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 40, height: 40)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.gray, lineWidth: 2))
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .center)
+                    .aspectRatio(1/1, contentMode: .fit)
+                    .clipped()
+                    .frame(height: 40)
+                    .clipped()
+                    .mask { RoundedRectangle(cornerRadius: 74, style: .continuous) }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 50, style: .continuous)
+                            .stroke(.white, lineWidth: 3)
+                            .background(RoundedRectangle(cornerRadius: 50, style: .continuous).fill(.clear))
+                    }
+                    .padding()
             } else {
                 Image("noImage")
                     .renderingMode(.original)
@@ -134,6 +157,7 @@ struct TabBarView: View {
                     .padding()
             }
         }
+
 
         
         

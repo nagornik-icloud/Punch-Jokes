@@ -6,292 +6,266 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct AccountView: View {
-    
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    
-    
     var body: some View {
-        
         if userService.currentUser != nil {
             UserProfileView()
         } else {
-            LoginScreenView {
-                appService.shownScreen = appService.lastScreen
-                appService.showTabBar = true
-            }
+            LoginScreenView(onTapX: {
+                
+            })
+                .onAppear {
+                    appService.showTabBar = true
+                }
         }
-        
-        
-
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
     }
-    
-    var account: some View {
-        
-        Text("account")
-        
-    }
-    
-    
 }
-
-#Preview {
-    AccountView()
-        .environmentObject(AppService())
-        .environmentObject(JokeService())
-        .environmentObject(UserService())
-        .preferredColorScheme(.dark)
-}
-
-import SwiftUI
-import Firebase
-import FirebaseStorage
 
 struct UserProfileView: View {
-    
-    @State private var userImage: UIImage? = nil
-    @State private var fetchedImage: UIImage? = nil // Для проверки изменений
-    
     @State private var userName: String = ""
     @State private var userNickname: String = ""
     @State private var userEmail: String = ""
-    
     @State private var isEditing: Bool = false
     @State private var isImagePickerPresented: Bool = false
-
+    @State private var isLoading: Bool = false
+    @State private var showError: Bool = false
+    @State private var errorMessage: String = ""
+    @State private var imageScale: CGFloat = 1.0
+    @State private var showingActionSheet = false
+    
+    @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    let storage = Storage.storage()
-//    let imageCachePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    var backgroundGradient: LinearGradient {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                Color(colorScheme == .dark ? .black : .white),
+                Color.purple.opacity(0.2)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
     
     var body: some View {
-            VStack(spacing: 20) {
-                // User photo
-                ZStack {
-                    if let image = userImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 120, height: 120)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.gray, lineWidth: 2))
-                    } else {
+        ZStack {
+            backgroundGradient
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 25) {
+                    // Profile Image Section
+                    ZStack {
                         Circle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 120, height: 120)
-                            .overlay(Text("Add Photo").foregroundColor(.gray))
-                    }
-                }
-                .onTapGesture {
-                    isImagePickerPresented = true
-                    isEditing = true
-                }
-                .sheet(isPresented: $isImagePickerPresented) {
-                    ImagePicker(selectedImage: $userImage, onSave: { image in
-                        userImage = image
-                    })
-                }
-                
-                // User info
-                VStack(alignment: .leading, spacing: 10) {
-                    EditableTextField(label: "Name", text: $userName, isEditing: isEditing)
-                    EditableTextField(label: "Nickname", text: $userNickname, isEditing: isEditing)
-                    EditableTextField(label: "Email", text: $userEmail, isEditing: isEditing)
-                }
-                .padding(.horizontal, 20)
-                
-                // Save Button
-                Button {
-                    isEditing.toggle()
-                    if !isEditing {
-                        saveChanges()
-                    }
-                } label: {
-                    Text(isEditing ? "Save Changes" : "Edit Profile")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(isEditing ? Color.blue : Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .padding(.horizontal, 20)
-                
-                
-                Button {
-                    userService.logoutUser { _ in
+                            .fill(.ultraThinMaterial)
+                            .frame(width: 140, height: 140)
+                            .shadow(color: .purple.opacity(0.3), radius: 10, x: 0, y: 5)
                         
+                        if let image = userService.userImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 120, height: 120)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 2))
+                                .scaleEffect(imageScale)
+                        } else {
+                            Image(systemName: "person.circle.fill")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 120, height: 120)
+                                .foregroundColor(.gray)
+                                .scaleEffect(imageScale)
+                        }
+                        
+                        if isEditing {
+                            Button(action: { showingActionSheet = true }) {
+                                Circle()
+                                    .fill(.ultraThinMaterial)
+                                    .frame(width: 140, height: 140)
+                                    .overlay(
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 30))
+                                            .foregroundColor(.white)
+                                    )
+                                    .opacity(0.7)
+                            }
+                        }
                     }
-                } label: {
-                    Text("Log out")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(isEditing ? Color.blue : Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                    .onTapGesture {
+                        if isEditing {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                imageScale = 1.1
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                    imageScale = 1.0
+                                }
+                            }
+                            showingActionSheet = true
+                        }
+                    }
+                    
+                    // User Info Fields
+                    VStack(spacing: 20) {
+                        CustomTextField(
+                            icon: "person.fill",
+                            placeholder: "Name",
+                            text: $userName,
+                            isEditing: isEditing
+                        )
+                        
+                        CustomTextField(
+                            icon: "at",
+                            placeholder: "Nickname",
+                            text: $userNickname,
+                            isEditing: isEditing
+                        )
+                        
+                        CustomTextField(
+                            icon: "envelope.fill",
+                            placeholder: "Email",
+                            text: $userEmail,
+                            isEditing: isEditing
+                        )
+                    }
+                    .padding(.horizontal)
+                    
+                    // Action Buttons
+                    VStack(spacing: 15) {
+                        Button(action: {
+                            withAnimation {
+                                if isEditing {
+                                    saveChanges()
+                                }
+                                isEditing.toggle()
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: isEditing ? "checkmark.circle.fill" : "pencil.circle.fill")
+                                Text(isEditing ? "Save Changes" : "Edit Profile")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isEditing ? Color.green : Color.blue)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                            .shadow(color: (isEditing ? Color.green : Color.blue).opacity(0.3), radius: 5, y: 3)
+                        }
+                        
+                        Button(action: {
+                            withAnimation {
+                                isLoading = true
+                                userService.logoutUser { _ in
+                                    isLoading = false
+                                    appService.closeAccScreen()
+                                }
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                Text("Logout")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.red)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                            .shadow(color: Color.red.opacity(0.3), radius: 5, y: 3)
+                        }
+                    }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal, 20)
-                
-                
-//                Button {
-//                    appService.closeAccScreen()
-//                } label: {
-//                    Text("Close")
-//                        .font(.headline)
-//                        .padding()
-//                        .frame(maxWidth: .infinity)
-//                        .background(isEditing ? Color.blue : Color.gray)
-//                        .foregroundColor(.white)
-//                        .cornerRadius(8)
-//                }
-//                .padding(.horizontal, 20)
-                
+                .padding(.top, 30)
+            }
+            
+            // Close Button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: { appService.closeAccScreen() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .foregroundColor(.gray)
+                            .padding()
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
+                    }
+                }
                 Spacer()
             }
-            .padding(.top, 40)
-            .overlay(alignment: .topTrailing) {
-                
-                
-                Image(systemName: "xmark")
-                    .font(.headline)
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-                    .padding(.horizontal)
-                    .shadow(color: .black.opacity(0.6), radius: 6, y: 5)
-                    .onTapGesture {
-                        appService.closeAccScreen()
-                    }
-                
-                
-            }
+            .padding()
             
-            .onAppear(perform: loadUserData)
-    }
-    
-    // MARK: - Methods
-    
-    
-//    func saveImageToCache(image: UIImage) {
-////        let filePath = getLocalImagePath()
-//        let filePath = userService.getLocalImagePath()
-//        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
-//        do {
-//            try data.write(to: filePath)
-//            print("Image saved locally at \(filePath)")
-//        } catch {
-//            print("Error saving image locally: \(error.localizedDescription)")
-//        }
-//    }
-    
-//    func loadImageFromCache() -> UIImage? {
-//        let filePath = getLocalImagePath()
-//        if FileManager.default.fileExists(atPath: filePath.path) {
-//            return UIImage(contentsOfFile: filePath.path)
-//        }
-//        return nil
-//    }
-//    func getLocalImagePath() -> URL {
-//        return imageCachePath.appendingPathComponent("\(userService.currentUser?.id ?? "default_user").jpg")
-//    }
-    
-    func uploadImage(image: UIImage) {
-        // Уменьшаем вес изображения
-        guard let imageData = image.jpegData(compressionQuality: 0.2) else { return }
-        let imagePath = "user_photos/\(userService.currentUser?.id ?? "random").jpg"
-        let ref = storage.reference().child(imagePath)
-        
-        ref.putData(imageData, metadata: nil) { _, error in
-            if let error = error {
-                print("Error uploading image: \(error.localizedDescription)")
-            } else {
-                print("Image uploaded successfully!")
-                userService.saveImageToCache(image: image) // Сохраняем изображение в кэш после загрузки
+            if isLoading {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .overlay(
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                    )
             }
         }
-    }
-    
-    func loadUserData() {
-        // Сначала пытаемся загрузить изображение из кэша
-        if let cachedImage = userService.loadImageFromCache() {
-            print("Loaded image from cache")
-            userImage = cachedImage
-        } else {
-            // Если изображения в кэше нет, загружаем из Firebase
-            let imagePath = "user_photos/\(userService.currentUser?.id ?? "random").jpg"
-            let ref = storage.reference().child(imagePath)
-            
-            ref.getData(maxSize: Int64(2 * 1024 * 1024)) { data, error in
-                if let error = error {
-                    print("Error fetching image: \(error.localizedDescription)")
-                } else if let data = data, let image = UIImage(data: data) {
-                    print("Loaded image from Firebase")
-                    userImage = image
-                    userService.saveImageToCache(image: image) // Сохраняем изображение локально
-                }
+        .confirmationDialog("Change Profile Picture", isPresented: $showingActionSheet) {
+            Button("Take Photo") {
+                isImagePickerPresented = true
+            }
+            Button("Choose From Library") {
+                isImagePickerPresented = true
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $isImagePickerPresented) {
+            ImagePicker(selectedImage: .constant(nil)) { newImage in
+                userService.updateUserImage(newImage)
             }
         }
-        
-        // Загружаем другую пользовательскую информацию
-        userName = userService.currentUser?.name ?? "default"
-        userEmail = userService.currentUser?.email ?? "default"
-        userNickname = userService.currentUser?.username ?? "default"
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+        .onAppear(perform: loadUserData)
     }
     
-    func saveChanges() {
-        // Загружаем изображение, если оно изменено
-        if userImage != fetchedImage, let updatedImage = userImage {
-            uploadImage(image: updatedImage)
-        }
+    private func loadUserData() {
+        userName = userService.currentUser?.name ?? ""
+        userEmail = userService.currentUser?.email ?? ""
+        userNickname = userService.currentUser?.username ?? ""
+    }
+    
+    private func saveChanges() {
+        isLoading = true
         userService.currentUser?.email = userEmail
         userService.currentUser?.name = userName
         userService.currentUser?.username = userNickname
-        userService.saveUserToFirestore(userService.currentUser!) { _ in
-            
-        }
-        // Сохранение других данных (например, в Firebase Realtime Database или Firestore)
-        print("Changes saved for:")
-        print("Name: \(userName), Nickname: \(userNickname), Email: \(userEmail)")
-    }
-}
-
-
-// MARK: - Subviews
-struct EditableTextField: View {
-    let label: String
-    @Binding var text: String
-    let isEditing: Bool
-    
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.gray)
-            if isEditing {
-                TextField("Enter \(label.lowercased())", text: $text)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-            } else {
-                Text(text)
-                    .font(.body)
+        
+        if let user = userService.currentUser {
+            userService.saveUserToFirestore(user) { result in
+                isLoading = false
+                switch result {
+                case .success:
+                    // Успешное сохранение
+                    break
+                case .failure(let error):
+                    showError(message: "Failed to save changes: \(error.localizedDescription)")
+                }
             }
         }
+    }
+    
+    private func showError(message: String) {
+        errorMessage = message
+        showError = true
     }
 }
 
@@ -312,16 +286,16 @@ struct ImagePicker: UIViewControllerRepresentable {
                 parent.selectedImage = image
                 parent.onSave(image)
             }
-            picker.dismiss(animated: true, completion: nil)
+            picker.dismiss(animated: true)
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true, completion: nil)
+            picker.dismiss(animated: true)
         }
     }
     
     func makeCoordinator() -> Coordinator {
-        return Coordinator(parent: self)
+        Coordinator(parent: self)
     }
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
@@ -331,4 +305,37 @@ struct ImagePicker: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+}
+
+struct CustomTextField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    let isEditing: Bool
+    
+    var body: some View {
+        HStack(spacing: 15) {
+            Image(systemName: icon)
+                .foregroundColor(.gray)
+                .frame(width: 20)
+            
+            TextField(placeholder, text: $text)
+                .disabled(!isEditing)
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+        )
+    }
+}
+
+#Preview {
+    AccountView()
+        .environmentObject(AppService())
+        .environmentObject(JokeService())
+        .environmentObject(UserService())
+        .preferredColorScheme(.dark)
 }

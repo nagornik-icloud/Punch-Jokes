@@ -26,10 +26,12 @@ class AppService: ObservableObject {
     }
     @Published var lastScreen: AppScreens = .allJokes
     @Published var showTabBar = true
+    @Published var isInitializing = true
+    
+    
     
     func closeAccScreen() {
         shownScreen = lastScreen
         showTabBar = true
     }
-    
 }

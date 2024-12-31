@@ -1,234 +1,197 @@
 import SwiftUI
+import FirebaseAuth
 
 struct LoginScreenView: View {
-    
-    @EnvironmentObject var jokeService: JokeService
-    @EnvironmentObject var userService: UserService
-    @EnvironmentObject var appService: AppService
-    
     @State private var email = ""
     @State private var password = ""
-    @State private var isLoggedIn = false
+    @State private var isLoading = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isSignUp = false
+    @State private var showPassword = false
+    @State private var animate = false
     
-    @State var inputsShow = false
+    @Environment(\.colorScheme) var colorScheme
+    @EnvironmentObject var userService: UserService
     
-//    @Binding var showXMark: Bool
-    
-//    @Binding var toShow: Bool
     var onTapX: () -> Void
+    
+    var backgroundGradient: LinearGradient {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                Color(colorScheme == .dark ? .black : .white),
+                Color.purple.opacity(0.2)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
     
     var body: some View {
         ZStack {
+            backgroundGradient
+                .ignoresSafeArea()
             
-            VStack {
-                Image("login-back")
-                    .renderingMode(.original)
-                    .resizable()
+            VStack(spacing: 25) {
+                // Logo или заголовок
+                VStack(spacing: 10) {
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .frame(width: 80, height: 80)
+                        .foregroundColor(.purple)
+                        .scaleEffect(animate ? 1.1 : 1.0)
+                        .animation(
+                            Animation.easeInOut(duration: 1.5)
+                                .repeatForever(autoreverses: true),
+                            value: animate
+                        )
                     
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: UIScreen.main.bounds.size.width - 40, height: 700)
-                    .clipped()
-                    .overlay(alignment: .topLeading) {
-                        // Hero
-                        VStack(alignment: .leading, spacing: 11) {
-                            Image("logo")
-                                .renderingMode(.original)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 100, alignment: .topLeading)
-                                .clipped()
-                                .mask { RoundedRectangle(cornerRadius: 25, style: .continuous) }
-                                .shadow(color: .black, radius: 8, x: 0, y: 4)
-                            VStack(alignment: .leading, spacing: 11) {
-                                Text("PunchJokes App")
-                                    .font(.system(.largeTitle, design: .rounded, weight: .medium))
-                                Text("""
-                                     Войдите чтобы не потерять свои любимые шутки,
-                                     а также отправлять шутки нам!
-                                     """)
-                                    .font(.system(.headline, weight: .medium))
-                                    .frame(width: 240, alignment: .leading)
-                                    .clipped()
-                                    .multilineTextAlignment(.leading)
-                            }
-                            .foregroundColor(Color.white)
-                            .shadow(color: .black, radius: 3, x: 0, y: 4)
-                        }
-                        .padding()
-                        .padding(.top, 42)
-                    }
-                    .overlay(alignment: .bottom) {
-                        Group {
-                            if !inputsShow {
-                                VStack(spacing: 20) {
-                                    Button(action: {
-                                        // Логика для создания аккаунта
-                                        inputsShow.toggle()
-                                    }) {
-                                        Text("Create Account")
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                            .padding()
-                                            .frame(maxWidth: .infinity)
-                                            .background(.ultraThinMaterial)
-                                            .cornerRadius(12)
-                                            .shadow(radius: 5)
-                                    }
-                                    .padding(.horizontal, 20)
-                                    
-                                    Button(action: {
-                                        // Логика для продолжения без регистрации
-                                        userService.isFirstTime = false
-                                        appService.shownScreen = .allJokes
-                                        appService.showTabBar = true
-                                    }) {
-                                        Text("Continue as Guest")
-                                            .fontWeight(.bold)
-                                            .foregroundColor(Color(UIColor(red: 0.20, green: 0.09, blue: 0.06, alpha: 1.00)))
-                                            .padding()
-                                            .frame(maxWidth: .infinity)
-                                            .background(Color.white)
-                                            .cornerRadius(12)
-                                            .shadow(radius: 5)
-                                    }
-                                    .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-                        .padding(.bottom)
-                    }
-                    .mask {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    Text(isSignUp ? "Create Account" : "Welcome Back")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text(isSignUp ? "Sign up to get started" : "Sign in to continue")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+                .padding(.top, 30)
+                
+                // Поля ввода
+                VStack(spacing: 20) {
+                    // Email field
+                    HStack(spacing: 15) {
+                        Image(systemName: "envelope.fill")
+                            .foregroundColor(.gray)
+                        TextField("Email", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
                     }
                     .padding()
-                    .shadow(color: Color(.sRGBLinear, red: 0/255, green: 0/255, blue: 0/255).opacity(0.15), radius: 18, x: 0, y: 14)
-                
-                Spacer()
-                
-                
-                
-            }
-            .overlay(alignment: .topTrailing) {
-                if appService.shownScreen != .onboarding{
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
                     
-                    Image(systemName: "xmark")
-                        .font(.headline)
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                        .padding(25)
-                        .shadow(color: .black.opacity(0.6), radius: 6, y: 5)
-                        .onTapGesture {
-                            onTapX()
+                    // Password field
+                    HStack(spacing: 15) {
+                        Image(systemName: "lock.fill")
+                            .foregroundColor(.gray)
+                        if showPassword {
+                            TextField("Password", text: $password)
+                        } else {
+                            SecureField("Password", text: $password)
                         }
-                    
+                        Button(action: { showPassword.toggle() }) {
+                            Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
                 }
-            }
-            
-            if inputsShow {
-                VStack {
-                    Spacer()
-                    loginInputs
-                        .padding()
-                }
-            }
-            
-            
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
-        .onAppear {
-//            appService.showTabBar = false
-        }
-
-    }
-    
-    var loginInputs: some View {
-        VStack(spacing: 10) {
-            
-            Text("Вход")
-                .font(.system(.largeTitle, design: .rounded, weight: .medium))
-            // Email Field
-            TextField("Ваш email", text: $email)
-                .colorScheme(.light)
-                .padding()
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.gray.opacity(0.25), lineWidth: 1)
-                )
-                .keyboardType(.default)
-                .autocapitalization(.none)
-
-
-            // Password Field
-            SecureField("Ваш пароль", text: $password)
-                .colorScheme(.light)
-                .padding()
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.gray.opacity(0.25), lineWidth: 1)
-                )
+                .padding(.horizontal)
                 
-            
-            // Log in Button
-            Button(action: {
-                // Add login action here
-                print("Logging in with email: \(email) and password: \(password)")
-                // Example: isLoggedIn = true // Simulate login
-            }) {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.blue)
-                    .frame(height: 60)
-                    .overlay {
-                        Text("Войти")
-                            .foregroundColor(.white)
-                            .font(.system(.headline, design: .rounded))
+                // Action Buttons
+                VStack(spacing: 15) {
+                    Button(action: handleAuthentication) {
+                        HStack {
+                            Image(systemName: isSignUp ? "person.badge.plus" : "arrow.right.circle")
+                            Text(isSignUp ? "Sign Up" : "Sign In")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.purple)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                        .shadow(color: Color.purple.opacity(0.3), radius: 5, y: 3)
                     }
-//                        .padding(.horizontal, 40) // Same padding as the image width
-            }
-            .padding(.top, 20)
-            
-            Button {
-                userService.loginUser(email: "nagorny.anton@gmail.com", password: "65151128") { result in
-                    switch result {
-                    case .success:
-                        appService.showTabBar = true
-                        print("User logged in: \(userService.currentUser?.email ?? "why noo current user?")")
-                    case .failure(let error):
-                        print("Error logging in: \(error.localizedDescription)")
+                    .disabled(email.isEmpty || password.isEmpty || isLoading)
+                    .opacity(email.isEmpty || password.isEmpty || isLoading ? 0.6 : 1)
+                    
+                    Button(action: { withAnimation { isSignUp.toggle() }}) {
+                        Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
+                            .foregroundColor(.purple)
                     }
                 }
-            } label: {
-                Text("Быстрый вход")
-                    .padding(.top)
-                    .foregroundStyle(Color(.darkGray))
-                    .font(.subheadline)
+                .padding(.horizontal)
             }
-
+            .padding(.vertical)
             
+            // Close Button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: onTapX) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .foregroundColor(.gray)
+                            .padding()
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
+                    }
+                }
+                Spacer()
+            }
+            .padding()
+            
+            if isLoading {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .overlay(
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                    )
+            }
         }
-        .foregroundColor(Color.white)
-        .shadow(color: .gray.opacity(0.2), radius: 5, x: 0, y: 4)
-        .padding()
-        .background(.ultraThickMaterial.opacity(0.8))
-        .cornerRadius(24)
-        
-//        .animation(.spring(.bouncy(duration: 4)), value: appService.showTabBar)
-//        .offset(y: -120)
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+        .onAppear {
+            animate = true
+        }
     }
     
+    private func handleAuthentication() {
+        isLoading = true
+        
+        if isSignUp {
+            Auth.auth().createUser(withEmail: email, password: password) { result, error in
+                handleAuthResult(result: result, error: error)
+            }
+        } else {
+            Auth.auth().signIn(withEmail: email, password: password) { result, error in
+                handleAuthResult(result: result, error: error)
+            }
+        }
+    }
+    
+    private func handleAuthResult(result: AuthDataResult?, error: Error?) {
+        if let error = error {
+            errorMessage = error.localizedDescription
+            showError = true
+            isLoading = false
+        } else if let user = result?.user {
+            userService.currentUser = User(id: user.uid, email: user.email ?? "", createdAt: user.metadata.creationDate ?? Date())
+//            userService.saveUserToCache(userService.currentUser!)
+            isLoading = false
+        }
+    }
 }
 
-
 #Preview {
-    LoginScreenView(onTapX: {
-        
-    })
-        .environmentObject(AppService())
-        .environmentObject(JokeService())
+    LoginScreenView(onTapX: {})
         .environmentObject(UserService())
         .preferredColorScheme(.dark)
 }
-
