@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
-
+import FirebaseStorage
+import UIKit
+import Combine
 
 struct TabBarView: View {
     
@@ -14,226 +16,143 @@ struct TabBarView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    @State var loginScreenShow = false
-    var imageCircle: UIImage? {
-        userService.userImage
+    @State private var selectedTab: Tab = .home
+    @State private var keyboardHeight: CGFloat = 0
+    @State private var isKeyboardVisible = false
+    
+    @Environment(\.colorScheme) var colorScheme
+    
+    var backgroundGradient: LinearGradient {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                Color(colorScheme == .dark ? .black : .white),
+                Color.purple.opacity(0.2)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
     
     var body: some View {
-
         ZStack {
+            // Фоновый градиент
+            backgroundGradient
+                .ignoresSafeArea()
             
-            
+            if !userService.loaded {
+                LoadingView()
+            } else {
+                mainContent
+            }
+        }
+        .onAppear {
+            setupKeyboardObservers()
+        }
+        .onDisappear {
+            NotificationCenter.default.removeObserver(self)
+        }
+    }
+    
+    private var mainContent: some View {
+        ZStack(alignment: .bottom) {
+            // Content
             ZStack {
-                switch appService.shownScreen {
-                case .onboarding:
-                    OnboardingView()
-                        .onAppear {
-                            appService.showTabBar = false
-                        }
-                case .allJokes:
+                switch selectedTab {
+                case .home:
                     AllJokesView()
                 case .favorites:
                     FavoritesView()
-                case .myJokes:
+                case .add:
                     SendJokeView()
-                case .settings:
-                    SettingsView()
-                case .account:
+                case .profile:
                     AccountView()
                 }
             }
-            // picturecicle
-            .overlay(alignment: .topTrailing) {
-                if appService.shownScreen != .onboarding && appService.shownScreen != .account {
-                    pictureCircle
-                }
-            }
-            // tabbar
-            .overlay(alignment: .bottom) {
-                Group {
-                    if appService.showTabBar {
-                        HStack {
-                            TabBarButton(
-                                label: "Все шутки",
-                                icon: "list.bullet",
-                                isSelected: appService.shownScreen == .allJokes
-                            ) {
-                                appService.shownScreen = .allJokes
-                            }
-                            
-                            TabBarButton(
-                                label: "Избранное",
-                                icon: "heart",
-                                isSelected: appService.shownScreen == .favorites
-                            ) {
-                                appService.shownScreen = .favorites
-                            }
-                            
-                            TabBarButton(
-                                label: "Мои шутки",
-                                icon: "person",
-                                isSelected: appService.shownScreen == .myJokes
-                            ) {
-                                appService.shownScreen = .myJokes
-                                
-                            }
-                            
-                            TabBarButton(
-                                label: "Настройки",
-                                icon: "gearshape",
-                                isSelected: appService.shownScreen == .settings
-                            ) {
-                                appService.shownScreen = .settings
-                            }
-                        }
-                        .background(Color(UIColor.systemGray6))
-                        .cornerRadius(20)
-                        .offset(y: loginScreenShow ? 300 : 0)
-                    }
-                }
-                .rotation3DEffect(
-                    Angle(degrees: loginScreenShow ? 40 : 0),
-                    axis: (x: 1, y: 0, z: 0)
-                )
-                .blur(radius: loginScreenShow ? 10 : 0)
-                
-                .animation(.spring(duration: 2), value: loginScreenShow)
-            }
-            .blur(radius: userService.loaded ? 0 : 5)
-            // Показываем LoadingView поверх всего контента во время инициализации
-            if !userService.loaded {
-                LoadingView()
-                    .transition(.opacity)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-        }
-        .frame(width: .infinity, height: .infinity)
-        .animation(.spring(duration: 1), value: userService.loaded)
-        
-        
-    
-    }
-    
-    var pictureCircle: some View {
-        
-        Button {
-            appService.shownScreen = .account
-            appService.showTabBar = false
-        } label: {
-            if let image = imageCircle {
-                Image(uiImage: image)
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .center)
-                    .aspectRatio(1/1, contentMode: .fit)
-                    .clipped()
-                    .frame(height: 40)
-                    .clipped()
-                    .mask { RoundedRectangle(cornerRadius: 74, style: .continuous) }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 50, style: .continuous)
-                            .stroke(.white, lineWidth: 3)
-                            .background(RoundedRectangle(cornerRadius: 50, style: .continuous).fill(.clear))
-                    }
-                    .padding()
-            } else {
-                Image("noImage")
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .center)
-                    .aspectRatio(1/1, contentMode: .fit)
-                    .clipped()
-                    .frame(height: 40)
-                    .clipped()
-                    .mask { RoundedRectangle(cornerRadius: 74, style: .continuous) }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 50, style: .continuous)
-                            .stroke(.white, lineWidth: 3)
-                            .background(RoundedRectangle(cornerRadius: 50, style: .continuous).fill(.clear))
-                    }
-                    .padding()
+            // Custom TabBar
+            if !isKeyboardVisible {
+                customTabBar
+                    .transition(.move(edge: .bottom))
+                    .animation(.spring(), value: isKeyboardVisible)
             }
         }
-
-
-        
-        
-        
+        .overlay(
+            FavoriteSyncView()
+        )
+        .onTapGesture {
+            if isKeyboardVisible {
+                UIApplication.shared.endEditing()
+            }
+        }
     }
     
+    private var customTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { tab in
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
+                }) {
+                    VStack(spacing: 8) {
+                        Image(systemName: tab.rawValue)
+                            .font(.system(size: 24, weight: .semibold))
+                        Text(tab.title)
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(selectedTab == tab ? .white : .gray)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.black.opacity(0.7))
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                )
+                .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 2, y: 6)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+    
+    private func setupKeyboardObservers() {
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            withAnimation {
+                self.isKeyboardVisible = true
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillHideNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            withAnimation {
+                self.isKeyboardVisible = false
+            }
+        }
+    }
 }
-
-
 
 #Preview {
     TabBarView()
-    //    TestAnimationView()
-        .environmentObject(AppService())
         .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(AppService())
         .preferredColorScheme(.dark)
-}
-
-
-
-struct TestAnimationView: View {
-    
-    @EnvironmentObject var appService: AppService
-    @State var show = false
-    var body: some View {
-        ZStack {
-            
-//            LoginScreenView()
-            
-            Button("Toggle TabBar") {
-                //                withAnimation(.spring(duration: 3)) {
-                appService.showTabBar.toggle()
-                //                DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: {
-                //                    show.toggle()
-                //                })
-                //                }
-            }
-            
-            if appService.showTabBar {
-                TestView()
-                //                    .opacity(show ? 1 : 0)
-                
-                    .zIndex(10)
-                    .transition(AnyTransition.move(edge: .bottom))
-                    .offset(y: appService.showTabBar ? 0 : 2000)
-                
-                
-                
-            }
-            
-            
-        }
-        .animation(.spring(duration: 3), value: appService.showTabBar)
-    }
-}
-
-struct TestView: View {
-    
-    @EnvironmentObject var appService: AppService
-    
-    var body: some View {
-        ZStack {
-            
-            Text("Hello, TabBar!")
-                .padding()
-            
-        }
-        .frame(width: 300, height: 300)
-        .background(Color.yellow)
-        .cornerRadius(10)
-        .onTapGesture {
-            //            withAnimation(.spring(duration: 3)) {
-            appService.showTabBar.toggle()
-            //            }
-        }
-        
-    }
 }

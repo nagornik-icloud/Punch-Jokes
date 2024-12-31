@@ -22,163 +22,229 @@ struct User: Identifiable, Codable {
 }
 
 // MARK: - UserService
+@MainActor
 class UserService: ObservableObject {
     // MARK: - Properties
-    private let auth = Auth.auth()
-    let db = Firestore.firestore()
-    private let storage = Storage.storage()
+    public let auth = Auth.auth()
+    public let db = Firestore.firestore()
+    public let storage = Storage.storage()
     
-    @Published var currentUser: User?
-    @Published var userImage: UIImage?
-    @Published var isFirstTime = true
-    @Published var loaded = false
+    @Published public var currentUser: User?
+    @Published public var userImage: UIImage?
+    @Published public var isFirstTime = true
+    @Published public var loaded = false
     
     // MARK: - Cache Properties
-    private let imageCache = NSCache<NSString, UIImage>()
-    private let cacheDirectory: URL
-    private let userCacheFileName = "cached_user.json"
-    private let imageCacheDirectory: URL
+    public let imageCache = NSCache<NSString, UIImage>()
+    public var userNameCache: [String: String] = [:]
+    public let imageCacheDirectory: URL
+    public var imageCacheTimestamps: [String: Date] = [:]
+    let cacheDirectory: URL
+    let userCacheFileName = "cached_user.json"
+    public let otherUsersCacheDirectory: URL
     
-    private var imageCacheKey: String {
-        "user_image_\(currentUser?.id ?? "default")"
-    }
-    
-    private var storageImagePath: String {
-        "users/\(currentUser?.id ?? "default")/profile.jpg"
-    }
-    
-    // MARK: - Initialization
     init() {
         self.cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        self.imageCacheDirectory = self.cacheDirectory.appendingPathComponent("images")
+        self.imageCacheDirectory = cacheDirectory.appendingPathComponent("user_images")
+        self.otherUsersCacheDirectory = cacheDirectory.appendingPathComponent("other_users")
         
-        // Создаем директорию для изображений, если её нет
+        // Создаем директории для кэша
         try? FileManager.default.createDirectory(at: imageCacheDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: otherUsersCacheDirectory, withIntermediateDirectories: true)
         
-        // Загружаем данные из кеша
-        if let cachedUser = loadUserFromCache() {
-            self.currentUser = cachedUser
-            loadUserImage()
-        }
+        // Загружаем данные из кэша
+        loadUserFromCache()
+        loadUserImage()
         
-        // Обновляем данные с сервера
-        Task {
-            await fetchCurrentUser()
-            await MainActor.run { self.loaded = true }
+        // Если пользователь авторизован, обновляем данные с сервера
+        if auth.currentUser != nil {
+            Task {
+                await fetchCurrentUser()
+            }
+        } else {
+            loaded = true
         }
     }
     
-    // MARK: - User Cache
+    // MARK: - Cache Management
+    func loadUserFromCache() {
+        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
+        guard let data = try? Data(contentsOf: cacheURL),
+              let user = try? JSONDecoder().decode(User.self, from: data) else {
+            return
+        }
+        self.currentUser = user
+    }
+    
+    func saveUserToCache() {
+        guard let user = currentUser else { return }
+        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
+        if let data = try? JSONEncoder().encode(user) {
+            try? data.write(to: cacheURL)
+        }
+    }
+    
+    func loadCacheTimestamps() {
+        let timestampsURL = cacheDirectory.appendingPathComponent("image_timestamps.json")
+        if let data = try? Data(contentsOf: timestampsURL),
+           let timestamps = try? JSONDecoder().decode([String: TimeInterval].self, from: data) {
+            imageCacheTimestamps = timestamps.mapValues { Date(timeIntervalSince1970: $0) }
+        }
+    }
+    
+    func saveCacheTimestamps() {
+        let timestampsURL = cacheDirectory.appendingPathComponent("image_timestamps.json")
+        let timestamps = imageCacheTimestamps.mapValues { $0.timeIntervalSince1970 }
+        if let data = try? JSONEncoder().encode(timestamps) {
+            try? data.write(to: timestampsURL)
+        }
+    }
+    
+    func clearImageCache(for userId: String) {
+        imageCache.removeObject(forKey: "user_photo_\(userId)" as NSString)
+        imageCacheTimestamps.removeValue(forKey: userId)
+        saveCacheTimestamps()
+    }
+    
+    // MARK: - Other Users Cache
+    func loadUserFromCache(userId: String) -> User? {
+        let cacheURL = otherUsersCacheDirectory.appendingPathComponent("\(userId).json")
+        guard let data = try? Data(contentsOf: cacheURL) else { return nil }
+        return try? JSONDecoder().decode(User.self, from: data)
+    }
+    
     func saveUserToCache(_ user: User) {
-        let encoder = JSONEncoder()
-        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
-        
-        do {
-            let data = try encoder.encode(user)
-            try data.write(to: cacheURL)
-        } catch {
-            print("Failed to save user to cache: \(error)")
+        let cacheURL = otherUsersCacheDirectory.appendingPathComponent("\(user.id).json")
+        if let data = try? JSONEncoder().encode(user) {
+            try? data.write(to: cacheURL)
         }
     }
     
-    private func loadUserFromCache() -> User? {
-        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
-        
-        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return nil }
+    // MARK: - User Data Management
+    @MainActor
+    func fetchCurrentUser() async {
+        guard let authUser = auth.currentUser else {
+            self.currentUser = nil
+            self.loaded = true
+            return
+        }
         
         do {
-            let data = try Data(contentsOf: cacheURL)
-            return try JSONDecoder().decode(User.self, from: data)
+            let document = try await db.collection("users").document(authUser.uid).getDocument()
+            if let user = try? document.data(as: User.self) {
+                self.currentUser = user
+                saveUserToCache()
+                self.loaded = true
+                
+                // Загружаем изображение пользователя
+                await loadUserImageFromServer()
+            }
         } catch {
-            print("Failed to load user from cache: \(error)")
-            return nil
+            print("Error fetching user: \(error)")
+            self.loaded = true
         }
-    }
-    
-    private func clearUserCache() {
-        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
-        try? FileManager.default.removeItem(at: cacheURL)
     }
     
     // MARK: - Image Handling
     func loadUserImage() {
-        // Try to load from memory cache first
-        if let cachedImage = imageCache.object(forKey: imageCacheKey as NSString) {
-            DispatchQueue.main.async {
-                self.userImage = cachedImage
-            }
+        guard let userId = currentUser?.id else { return }
+        
+        // Проверяем кэш в памяти
+        if let cachedImage = imageCache.object(forKey: "user_photo_\(userId)" as NSString) {
+            self.userImage = cachedImage
             return
         }
         
-        // Then try to load from disk cache
-        if let diskCachedImage = loadImageFromDisk() {
-            imageCache.setObject(diskCachedImage, forKey: imageCacheKey as NSString)
-            DispatchQueue.main.async {
-                self.userImage = diskCachedImage
-            }
+        // Проверяем кэш на диске
+        let imageURL = imageCacheDirectory.appendingPathComponent("\(userId).jpg")
+        if let data = try? Data(contentsOf: imageURL),
+           let image = UIImage(data: data) {
+            self.userImage = image
+            imageCache.setObject(image, forKey: "user_photo_\(userId)" as NSString)
             return
         }
         
-        // If no cached image found, load from server
-        loadImageFromServer()
-    }
-    
-    private func loadImageFromDisk() -> UIImage? {
-        let fileURL = imageCacheDirectory.appendingPathComponent(imageCacheKey)
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
-            return nil
+        // Если в кэше нет, загружаем с сервера
+        Task {
+            await loadUserImageFromServer()
         }
-        return image
     }
     
-    private func saveImageToDisk(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        let fileURL = imageCacheDirectory.appendingPathComponent(imageCacheKey)
-        try? data.write(to: fileURL)
-    }
-    
-    private func loadImageFromServer() {
-        let ref = storage.reference().child(storageImagePath)
+    func loadUserImageFromServer() async {
+        guard let userId = currentUser?.id else { return }
         
-        ref.getData(maxSize: Int64(2 * 1024 * 1024)) { [weak self] data, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("Error loading image from server: \(error)")
-                return
-            }
-            
-            if let data = data, let image = UIImage(data: data) {
-                self.imageCache.setObject(image, forKey: self.imageCacheKey as NSString)
-                self.saveImageToDisk(image)
-                
-                DispatchQueue.main.async {
+        let imageRef = storage.reference().child("user_photos/\(userId).jpg")
+        
+        do {
+            let data = try await imageRef.data(maxSize: 5 * 1024 * 1024)
+            if let image = UIImage(data: data) {
+                await MainActor.run {
                     self.userImage = image
                 }
+                
+                // Сохраняем в кэш
+                imageCache.setObject(image, forKey: "user_photo_\(userId)" as NSString)
+                imageCacheTimestamps[userId] = Date()
+                saveCacheTimestamps()
+                
+                // Сохраняем на диск
+                let imageURL = imageCacheDirectory.appendingPathComponent("\(userId).jpg")
+                try? data.write(to: imageURL)
             }
+        } catch {
+            print("Error loading user image: \(error)")
         }
     }
     
-    func updateUserImage(_ image: UIImage) {
-        // Update memory cache and UI immediately
-        imageCache.setObject(image, forKey: imageCacheKey as NSString)
-        userImage = image
-        saveImageToDisk(image)
+    func uploadUserImage(_ imageData: Data) async throws {
+        guard let userId = currentUser?.id else { return }
         
-        // Upload to server
-        guard let imageData = image.jpegData(compressionQuality: 0.2) else { return }
+        // Очищаем кэш
+        clearImageCache(for: userId)
         
-        let ref = storage.reference().child(storageImagePath)
-        ref.putData(imageData, metadata: nil) { [weak self] metadata, error in
-            if let error = error {
-                print("Error uploading image: \(error)")
+        // Сохраняем локально
+        if let image = UIImage(data: imageData) {
+            await MainActor.run {
+                self.userImage = image
             }
+            imageCache.setObject(image, forKey: "user_photo_\(userId)" as NSString)
+            let imageURL = imageCacheDirectory.appendingPathComponent("\(userId).jpg")
+            try? imageData.write(to: imageURL)
         }
+        
+        // Отправляем на сервер
+        let storageRef = storage.reference()
+        let imageRef = storageRef.child("user_photos/\(userId).jpg")
+        
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+        
+        _ = try await imageRef.putData(imageData, metadata: metadata)
+        
+        // Обновляем временную метку
+        imageCacheTimestamps[userId] = Date()
+        saveCacheTimestamps()
     }
     
-    // MARK: - Authentication
+    @MainActor
+    func updateUserImage(_ image: UIImage) async throws {
+        guard let userId = currentUser?.id else { throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user ID"]) }
+        guard let imageData = image.jpegData(compressionQuality: 0.7) else { throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not convert image to data"]) }
+        
+        // Сохраняем в кэш
+        self.userImage = image
+        imageCache.setObject(image, forKey: "user_photo_\(userId)" as NSString)
+        
+        let imageURL = imageCacheDirectory.appendingPathComponent("\(userId).jpg")
+        try? imageData.write(to: imageURL)
+        
+        // Загружаем на сервер
+        let storageRef = storage.reference()
+        let imageRef = storageRef.child("user_photos/\(userId).jpg")
+        
+        _ = try await imageRef.putDataAsync(imageData)
+    }
+    
     func registerUser(email: String, password: String, username: String?, completion: @escaping (Result<User, Error>) -> Void) {
         auth.createUser(withEmail: email, password: password) { [weak self] result, error in
             if let error = error {
@@ -233,33 +299,7 @@ class UserService: ObservableObject {
         }
     }
     
-    func fetchCurrentUser() async {
-        guard let userId = auth.currentUser?.uid else {
-            await MainActor.run {
-                self.currentUser = nil
-                self.clearUserCache()
-            }
-            return
-        }
-        
-        do {
-            let document = try await db.collection("users").document(userId).getDocument()
-            let user = try document.data(as: User.self)
-            
-            await MainActor.run {
-                self.currentUser = user
-                if let jokeService = getJokeService() {
-                    jokeService.syncFavorites(with: user.favouriteJokesIDs ?? [])
-                }
-                self.saveUserToCache(user)
-                self.loadUserImage()
-            }
-        } catch {
-            print("Error fetching user: \(error)")
-        }
-    }
-    
-    private func getJokeService() -> JokeService? {
+    func getJokeService() -> JokeService? {
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene?.windows.first
         let rootViewController = window?.rootViewController
@@ -275,7 +315,7 @@ class UserService: ObservableObject {
         return nil
     }
     
-    private func loadUser(uid: String, completion: @escaping (Result<User, Error>) -> Void) {
+    func loadUser(uid: String, completion: @escaping (Result<User, Error>) -> Void) {
         db.collection("users").document(uid).getDocument { document, error in
             if let error = error {
                 completion(.failure(error))
@@ -291,7 +331,7 @@ class UserService: ObservableObject {
         }
     }
     
-    private func parseUser(from data: [String: Any], uid: String, completion: @escaping (Result<User, Error>) -> Void) {
+    func parseUser(from data: [String: Any], uid: String, completion: @escaping (Result<User, Error>) -> Void) {
         guard let email = data["email"] as? String,
               let createdAtTimestamp = data["createdAt"] as? Timestamp else {
             completion(.failure(NSError(domain: "ParseError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to parse user data."])))
@@ -320,7 +360,7 @@ class UserService: ObservableObject {
         try await db.collection("users").document(user.id).setData(userData)
     }
     
-    private func saveUserToFirestoreWithCompletion(_ user: User, completion: @escaping (Result<Void, Error>) -> Void) {
+    func saveUserToFirestoreWithCompletion(_ user: User, completion: @escaping (Result<Void, Error>) -> Void) {
         Task {
             do {
                 try await saveUserToFirestore(user)
@@ -341,5 +381,10 @@ class UserService: ObservableObject {
         } catch {
             completion(false)
         }
+    }
+    
+    func clearUserCache() {
+        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
+        try? FileManager.default.removeItem(at: cacheURL)
     }
 }

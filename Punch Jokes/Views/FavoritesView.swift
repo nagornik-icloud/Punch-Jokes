@@ -13,19 +13,36 @@ struct FavoritesView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
+    @Environment(\.colorScheme) var colorScheme
+    
     var body: some View {
         contentView
     }
     
+    var backgroundGradient: LinearGradient {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                Color(colorScheme == .dark ? .black : .white),
+                Color.purple.opacity(0.2)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
     private var contentView: some View {
         NavigationView {
-            Group {
+            ZStack {
+                backgroundGradient
+                    .ignoresSafeArea()
                 if favouriteJokes.isEmpty {
                     emptyStateView
                 } else {
                     jokeListView
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
             .navigationTitle("Избранное")
         }
         .onAppear {
@@ -63,6 +80,8 @@ struct FavoritesView: View {
             .padding(.vertical)
             Color.clear.frame(height: 50)
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
     }
     
     // Оптимизация для `favouriteJokes`

@@ -6,124 +6,62 @@
 //
 
 import SwiftUI
-import FirebaseStorage
+import FirebaseFirestore
 
 struct JokeCard: View {
     let joke: Joke
-    @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
+    @EnvironmentObject var userService: UserService
     
     @State private var authorImage: UIImage?
-    @State private var isLoading = false
-    @State private var isExpanded = false
-    @State private var isFavorite = false
-    @State private var authorUser: User?
+    @State private var authorName: String = ""
+    @State private var isFavorite: Bool = false
     @State private var showShareSheet = false
-    @State private var punchlineOffset: CGSize = .zero
-    @State private var punchlineRotation: Double = -15
+    @State private var isShowingPunchline = false
+    @State private var shakeEffect: CGFloat = 0
+    
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
     
     var body: some View {
-        ZStack {
-            // Основная карточка с setup
-            mainCard
-            
-            // Карточка с punchline
-            if isExpanded {
-                punchlineCard
-                    .offset(punchlineOffset)
-                    .rotationEffect(.degrees(punchlineRotation))
-                    .transition(
-                        .asymmetric(
-                            insertion: AnyTransition.offset(x: 300, y: -100)
-                                .combined(with: .opacity)
-                                .combined(with: .scale(scale: 0.8)),
-                            removal: AnyTransition.offset(x: 300, y: -100)
-                                .combined(with: .opacity)
-                                .combined(with: .scale(scale: 0.8))
-                        )
-                    )
-                    .zIndex(10)
+        Button(action: handleTap) {
+            VStack(alignment: .leading, spacing: 16) {
+                authorInfoView
+                jokeContentView
+                actionButtonsView
             }
+            .padding()
+            .background(Color(UIColor.systemBackground))
+            .cornerRadius(16)
+            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isExpanded)
+        .buttonStyle(PlainButtonStyle())
+        .onAppear(perform: setupCard)
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(activityItems: [
-                "\(joke.setup)\n\n\(joke.punchline)\n\nПоделился шуткой из Punch Jokes"
-            ])
+            ShareSheet(activityItems: [shareText])
         }
-        .onAppear {
-            loadAuthorData()
-            checkFavorite()
-        }
-    }
-    
-    private var mainCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            authorInfoView
-            
-            Text(joke.setup)
-                .font(.headline)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
-            
-            actionButtonsView
-        }
-        .padding(.vertical, 8)
-        .background(cardBackground)
-        .overlay(cardBorder)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isExpanded {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isExpanded = false
-                }
-            } else {
-                isExpanded = true
-                punchlineOffset = .zero
-                punchlineRotation = 0
-            }
-        }
-    }
-    
-    private var punchlineCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(joke.punchline)
-                .font(.headline)
-                .foregroundColor(.blue)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
-        }
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(UIColor.systemBackground))
-                .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(LinearGradient(
-                    gradient: Gradient(colors: [.purple.opacity(0.3), .blue.opacity(0.3)]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ), lineWidth: 1)
-        )
-        .onTapGesture {
-            withAnimation {
-                isExpanded.toggle()
-            }
-        }
+        .rotation3DEffect(.degrees(shakeEffect * 5), axis: (x: 0, y: 1, z: 0))
+        .scaleEffect(1 + shakeEffect * 0.05)
     }
     
     private var authorInfoView: some View {
-        HStack(spacing: 8) {
+        HStack {
             authorImageView
-            authorNameView
-            Spacer()
-            dateView
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(authorName)
+                    .font(.headline)
+                if let date = joke.createdAt {
+                    Text(dateFormatter.string(from: date))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
     }
     
     private var authorImageView: some View {
@@ -132,151 +70,162 @@ struct JokeCard: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
             } else {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .foregroundColor(.gray)
+                Circle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 40, height: 40)
             }
         }
-        .frame(width: 32, height: 32)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
     }
     
-    private var authorNameView: some View {
-        Text(authorUser?.username ?? joke.author)
-            .font(.callout)
-            .foregroundColor(.gray)
-    }
-    
-    private var dateView: some View {
-        Group {
-            if let date = joke.createdAt {
-                Text(formatDate(date))
-                    .font(.caption2)
-                    .foregroundColor(.gray.opacity(0.8))
+    private var jokeContentView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(joke.setup)
+                .font(.body)
+                .multilineTextAlignment(.leading)
+                .foregroundColor(.primary)
+            
+            if isShowingPunchline {
+                Text(joke.punchline)
+                    .font(.body.bold())
+                    .foregroundColor(.blue)
+                    .multilineTextAlignment(.leading)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8).combined(with: .opacity),
+                        removal: .scale(scale: 1.2).combined(with: .opacity)
+                    ))
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isShowingPunchline)
     }
     
     private var actionButtonsView: some View {
-        HStack(spacing: 20) {
-            favoriteButton
+        HStack {
+            Button(action: toggleFavorite) {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .foregroundColor(isFavorite ? .red : .gray)
+                    .font(.title2)
+            }
+            .buttonStyle(BorderlessButtonStyle())
+            
             Spacer()
-            shareButton
+            
+            Button(action: { showShareSheet = true }) {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundColor(.gray)
+                    .font(.title2)
+            }
+            .buttonStyle(BorderlessButtonStyle())
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
+        .padding(.top, 8)
     }
     
-    private var favoriteButton: some View {
-        Button(action: toggleFavorite) {
-            Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .foregroundColor(isFavorite ? .red : .gray)
-                .font(.system(size: 20))
+    private var shareText: String {
+        "\(joke.setup)\n\n\(joke.punchline)\n\nПоделился шуткой из Punch Jokes"
+    }
+    
+    private func setupCard() {
+        checkFavorite()
+        loadAuthorData()
+    }
+    
+    private func handleTap() {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+            shakeEffect = 1
         }
-    }
-    
-    private var shareButton: some View {
-        Button(action: { showShareSheet = true }) {
-            Image(systemName: "square.and.arrow.up")
-                .foregroundColor(.gray)
-                .font(.system(size: 20))
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.5).delay(0.1)) {
+            shakeEffect = 0
         }
-    }
-    
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(Color(UIColor.systemBackground))
-            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 5)
-    }
-    
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .stroke(LinearGradient(
-                gradient: Gradient(colors: [.blue.opacity(0.2), .purple.opacity(0.2)]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ), lineWidth: 1)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation {
+                isShowingPunchline.toggle()
+            }
+        }
     }
     
     private func loadAuthorData() {
+        let authorId = joke.author
+        
+        // Загружаем имя автора
         Task {
-            if let userData = try? await userService.db.collection("users")
-                .whereField("email", isEqualTo: joke.author)
-                .getDocuments() {
-                if let userDoc = userData.documents.first,
-                   let user = try? userDoc.data(as: User.self) {
-                    await MainActor.run {
-                        self.authorUser = user
-                        loadAuthorImage(for: user)
-                    }
+            do {
+                // Проверяем кэш
+                if let cachedName = userService.userNameCache[authorId] {
+                    self.authorName = cachedName
+                    return
                 }
+                
+                // Загружаем из Firebase
+                let userDoc = try await userService.db.collection("users")
+                    .document(authorId)
+                    .getDocument()
+                
+                if let userData = userDoc.data(),
+                   let username = userData["username"] as? String {
+                    self.authorName = username
+                    userService.userNameCache[authorId] = username
+                } else {
+                    self.authorName = "Пользователь"
+                    userService.userNameCache[authorId] = "Пользователь"
+                }
+            } catch {
+                print("Error loading author name: \(error)")
+                self.authorName = "Пользователь"
+                userService.userNameCache[authorId] = "Пользователь"
             }
         }
-    }
-    
-    private func loadAuthorImage(for user: User) {
+        
+        // Загружаем аватар
+        if let cachedImage = userService.imageCache.object(forKey: "user_photo_\(authorId)" as NSString) {
+            self.authorImage = cachedImage
+            return
+        }
+        
         Task {
-            let storageRef = Storage.storage().reference()
-            let imageRef = storageRef.child("users/\(user.id)/profile.jpg")
-            
             do {
-                let imageData = try await imageRef.data(maxSize: 1 * 1024 * 1024)
-                if let image = UIImage(data: imageData) {
+                let imageURL = userService.imageCacheDirectory.appendingPathComponent("\(authorId).jpg")
+                if let data = try? Data(contentsOf: imageURL),
+                   let image = UIImage(data: data) {
+                    self.authorImage = image
+                    userService.imageCache.setObject(image, forKey: "user_photo_\(authorId)" as NSString)
+                    return
+                }
+                
+                let storageRef = userService.storage.reference()
+                let imageRef = storageRef.child("user_photos/\(authorId).jpg")
+                let data = try await imageRef.data(maxSize: 5 * 1024 * 1024)
+                
+                if let image = UIImage(data: data) {
                     await MainActor.run {
                         self.authorImage = image
                     }
+                    userService.imageCache.setObject(image, forKey: "user_photo_\(authorId)" as NSString)
+                    try? data.write(to: imageURL)
                 }
             } catch {
-                print("Error loading image: \(error)")
+                print("Error loading author image: \(error)")
             }
         }
-    }
-    
-    private func formatDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
     }
     
     private func checkFavorite() {
-        isFavorite = jokeService.favoriteJokes.contains(joke.id ?? "")
+        if let jokeId = joke.id {
+            isFavorite = jokeService.favoriteJokes.contains(jokeId)
+        }
     }
     
     private func toggleFavorite() {
-        if let id = joke.id {
-            if let index = jokeService.favoriteJokes.firstIndex(where: { $0 == id }) {
-                jokeService.favoriteJokes.remove(at: index)
-                isFavorite = false
-            } else {
-                jokeService.favoriteJokes.append(id)
-                isFavorite = true
-            }
-            
-            // Синхронизируем с сервером и кешем
-            Task {
-                if var user = userService.currentUser {
-                    // Обновляем данные пользователя
-                    user.favouriteJokesIDs = jokeService.favoriteJokes
-                    
-                    // Сохраняем в JokeService (который сохранит в кеш)
-                    jokeService.syncFavorites(with: jokeService.favoriteJokes)
-                    
-                    // Отправляем на сервер
-                    do {
-                        try await userService.saveUserToFirestore(user)
-                        // Сохраняем обновленного пользователя в кеш
-                        userService.saveUserToCache(user)
-                    } catch {
-                        print("Error saving favorites: \(error)")
-                    }
-                }
-            }
+        guard let jokeId = joke.id else { return }
+        
+        if isFavorite {
+            jokeService.favoriteJokes.removeAll { $0 == jokeId }
+        } else {
+            jokeService.favoriteJokes.append(jokeId)
         }
+        isFavorite.toggle()
     }
 }
 

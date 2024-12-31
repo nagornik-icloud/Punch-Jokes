@@ -126,22 +126,22 @@ struct LoginScreenView: View {
             .padding(.vertical)
             
             // Close Button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: onTapX) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                            .padding()
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
-                    }
-                }
-                Spacer()
-            }
-            .padding()
+//            VStack {
+//                HStack {
+//                    Spacer()
+//                    Button(action: onTapX) {
+//                        Image(systemName: "xmark.circle.fill")
+//                            .font(.title)
+//                            .foregroundColor(.gray)
+//                            .padding()
+//                            .background(.ultraThinMaterial)
+//                            .clipShape(Circle())
+//                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
+//                    }
+//                }
+//                Spacer()
+//            }
+//            .padding()
             
             if isLoading {
                 Color.black.opacity(0.4)

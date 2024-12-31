@@ -7,22 +7,14 @@
 
 import Foundation
 import FirebaseFirestore
+import FirebaseStorage
 import SwiftUI
 
-struct Joke: Identifiable, Codable, Hashable {
-    @DocumentID var id: String?
-    var setup: String
-    var punchline: String
-    var status: String
-    var author: String
-    var createdAt: Date?
-}
-
 class JokeService: ObservableObject {
-    private let db = Firestore.firestore()
-    private let cacheDirectory: URL
-    private let jokesCacheFileName = "cached_jokes.json"
-    private let favoriteJokesKey = "FavoriteJokes"
+    public let db = Firestore.firestore()
+    let cacheDirectory: URL
+    let jokesCacheFileName = "cached_jokes.json"
+    let favoriteJokesKey = "FavoriteJokes"
     
     @Published var allJokes = [Joke]()
     @Published var favoriteJokes = [String]()
@@ -31,24 +23,23 @@ class JokeService: ObservableObject {
     init() {
         self.cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         
-        // Загружаем шутки из кеша при инициализации
+        // Загружаем данные из кэша при запуске
         if let cachedJokes = loadJokesFromCache() {
             self.allJokes = cachedJokes
         }
-        
-        // Загружаем избранные шутки из кеша
         loadFavoriteJokes()
         
-        // Затем обновляем данные с сервера
+        // Обновляем данные с сервера
         Task {
             await fetchJokes()
         }
     }
     
     // MARK: - Cache Management
-    private func saveJokesToCache(_ jokes: [Joke]) {
-        let encoder = JSONEncoder()
+    func saveJokesToCache(_ jokes: [Joke]) {
         let cacheURL = cacheDirectory.appendingPathComponent(jokesCacheFileName)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         
         do {
             let data = try encoder.encode(jokes)
@@ -58,26 +49,33 @@ class JokeService: ObservableObject {
         }
     }
     
-    private func loadJokesFromCache() -> [Joke]? {
+    func loadJokesFromCache() -> [Joke]? {
         let cacheURL = cacheDirectory.appendingPathComponent(jokesCacheFileName)
-        
         guard FileManager.default.fileExists(atPath: cacheURL.path) else { return nil }
         
         do {
             let data = try Data(contentsOf: cacheURL)
-            return try JSONDecoder().decode([Joke].self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode([Joke].self, from: data)
         } catch {
             print("Failed to load jokes from cache: \(error)")
             return nil
         }
     }
     
-    private func clearJokesCache() {
-        let cacheURL = cacheDirectory.appendingPathComponent(jokesCacheFileName)
-        try? FileManager.default.removeItem(at: cacheURL)
+    func loadFavoriteJokes() {
+        if let saved = UserDefaults.standard.array(forKey: favoriteJokesKey) as? [String] {
+            self.favoriteJokes = saved
+        }
     }
     
-    // MARK: - Joke Operations
+    func saveFavoriteJokes() {
+        UserDefaults.standard.set(favoriteJokes, forKey: favoriteJokesKey)
+        UserDefaults.standard.synchronize()
+    }
+    
+    // MARK: - Server Operations
     @MainActor
     func fetchJokes() async {
         isLoading = true
@@ -92,9 +90,9 @@ class JokeService: ObservableObject {
             }
             .sorted { ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast) }
             
-            // Обновляем данные и сохраняем в кеш
+            // Обновляем данные и сохраняем в кэш
             self.allJokes = jokes
-            self.saveJokesToCache(jokes)
+            saveJokesToCache(jokes)
             isLoading = false
         } catch {
             print("Error fetching jokes: \(error)")
@@ -102,54 +100,20 @@ class JokeService: ObservableObject {
         }
     }
     
-    func addJokeForModeration(joke: Joke, completion: @escaping (Bool) -> Void) {
+    func addJokeForModeration(joke: Joke) async throws {
         let jokeID = UUID().uuidString
+        var newJoke = joke
+        newJoke.id = jokeID
+        newJoke.status = "pending"
+        newJoke.createdAt = Date()
         
-        var jokeData: [String: Any] = [
-            "id": jokeID,
-            "setup": joke.setup,
-            "punchline": joke.punchline,
-            "status": "pending",
-            "author": joke.author,
-            "createdAt": Timestamp(date: Date())
-        ]
+        try await db.collection("jokes").document(jokeID).setData(from: newJoke)
         
-        db.collection("jokes")
-            .document(jokeID)
-            .setData(jokeData) { error in
-                if let error = error {
-                    print("Error adding joke: \(error)")
-                    completion(false)
-                } else {
-                    completion(true)
-                }
-            }
-    }
-    
-    // MARK: - Favorite Jokes Management
-    private func loadFavoriteJokes() {
-        if let saved = UserDefaults.standard.array(forKey: favoriteJokesKey) as? [String] {
-            self.favoriteJokes = saved
+        // Обновляем локальный список шуток
+        await MainActor.run {
+            allJokes.insert(newJoke, at: 0)
+            saveJokesToCache(allJokes)
         }
-    }
-    
-    private func saveFavoriteJokes() {
-        UserDefaults.standard.set(favoriteJokes, forKey: favoriteJokesKey)
-        UserDefaults.standard.synchronize()
-    }
-    
-    func syncFavorites(with serverFavorites: [String]) {
-        // Если на сервере есть избранные шутки, обновляем локальные данные
-        if !serverFavorites.isEmpty {
-            favoriteJokes = serverFavorites
-            saveFavoriteJokes()
-        } else if favoriteJokes.isEmpty {
-            // Если и на сервере и локально пусто, сохраняем пустой массив
-            favoriteJokes = []
-            saveFavoriteJokes()
-        }
-        // Если на сервере пусто, а локально есть данные - оставляем локальные данные
-        // и они будут отправлены на сервер при следующей синхронизации
     }
     
     func toggleFavorite(_ jokeId: String) {
@@ -159,11 +123,5 @@ class JokeService: ObservableObject {
             favoriteJokes.append(jokeId)
         }
         saveFavoriteJokes()
-    }
-    
-    func clearFavoritesCache() {
-        favoriteJokes = []
-        UserDefaults.standard.removeObject(forKey: favoriteJokesKey)
-        UserDefaults.standard.synchronize()
     }
 }

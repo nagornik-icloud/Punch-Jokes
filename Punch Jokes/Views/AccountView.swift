@@ -44,21 +44,21 @@ struct UserProfileView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    var backgroundGradient: LinearGradient {
-        LinearGradient(
-            gradient: Gradient(colors: [
-                Color(colorScheme == .dark ? .black : .white),
-                Color.purple.opacity(0.2)
-            ]),
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
+//    var backgroundGradient: LinearGradient {
+//        LinearGradient(
+//            gradient: Gradient(colors: [
+//                Color(colorScheme == .dark ? .black : .white),
+//                Color.purple.opacity(0.2)
+//            ]),
+//            startPoint: .topLeading,
+//            endPoint: .bottomTrailing
+//        )
+//    }
     
     var body: some View {
         ZStack {
-            backgroundGradient
-                .ignoresSafeArea()
+//            backgroundGradient
+//                .ignoresSafeArea()
             
             ScrollView {
                 VStack(spacing: 25) {
@@ -188,22 +188,22 @@ struct UserProfileView: View {
             }
             
             // Close Button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: { appService.closeAccScreen() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                            .padding()
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
-                    }
-                }
-                Spacer()
-            }
-            .padding()
+            // VStack {
+            //     HStack {
+            //         Spacer()
+            //         Button(action: { appService.closeAccScreen() }) {
+            //             Image(systemName: "xmark.circle.fill")
+            //                 .font(.title)
+            //                 .foregroundColor(.gray)
+            //                 .padding()
+            //                 .background(.ultraThinMaterial)
+            //                 .clipShape(Circle())
+            //                 .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
+            //         }
+            //     }
+            //     Spacer()
+            // }
+            // .padding()
             
             if isLoading {
                 Color.black.opacity(0.4)
@@ -226,7 +226,7 @@ struct UserProfileView: View {
         }
         .sheet(isPresented: $isImagePickerPresented) {
             ImagePicker(selectedImage: .constant(nil)) { newImage in
-                userService.updateUserImage(newImage)
+                uploadImage(newImage)
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -271,6 +271,16 @@ struct UserProfileView: View {
     private func showError(message: String) {
         errorMessage = message
         showError = true
+    }
+    
+    private func uploadImage(_ image: UIImage) {
+        Task {
+            do {
+                try await userService.updateUserImage(image)
+            } catch {
+                print("Error updating user image: \(error)")
+            }
+        }
     }
 }
 

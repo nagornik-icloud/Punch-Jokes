@@ -13,23 +13,48 @@ struct AllJokesView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
+    @Environment(\.colorScheme) var colorScheme
+    
     var body: some View {
         contentView
     }
     
+    var backgroundGradient: LinearGradient {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                Color(colorScheme == .dark ? .black : .white),
+                Color.purple.opacity(0.2)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
     private var contentView: some View {
         NavigationView {
-            ScrollView {
-                if jokeService.allJokes.isEmpty {
-                    emptyStateView
-                } else {
-                    jokeListView
+            ZStack {
+                backgroundGradient
+                    .ignoresSafeArea()
+                ScrollView {
+                    if jokeService.allJokes.isEmpty {
+                        if jokeService.isLoading {
+                            ProgressView()
+                                .padding()
+                        } else {
+                            emptyStateView
+                        }
+                    } else {
+                        jokeListView
+                    }
                 }
-                Color.clear.frame(height: 50)
-            }
-            .navigationTitle("Все шутки")
-            .refreshable {
-                await jokeService.fetchJokes()
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .navigationTitle("Все шутки")
+                .refreshable {
+                    Task {
+                        await jokeService.fetchJokes()
+                    }
+                }
             }
         }
     }
@@ -57,6 +82,7 @@ struct AllJokesView: View {
                 JokeCard(joke: joke)
                     .padding(.horizontal)
             }
+            Color.clear.frame(height: 50)
         }
         .padding(.vertical)
     }
