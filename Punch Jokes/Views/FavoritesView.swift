@@ -13,40 +13,17 @@ struct FavoritesView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    @State private var selectedCardIndex: Int? = nil
-    
-    // Оптимизация для `favouriteJokes`
-    var favouriteJokes: [Joke] {
-        let favoriteIDs = jokeService.favoriteJokes.isEmpty ?
-        (userService.currentUser?.favouriteJokesIDs ?? []) :
-        jokeService.favoriteJokes
-        return jokeService.allJokes.filter { favoriteIDs.contains($0.id ?? "") }
+    var body: some View {
+        contentView
     }
     
-    var body: some View {
+    private var contentView: some View {
         NavigationView {
-            ScrollView {
+            Group {
                 if favouriteJokes.isEmpty {
-                    Text("У вас пока нет избранных шуток.")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .padding()
+                    emptyStateView
                 } else {
-                    LazyVGrid(columns: [GridItem(.flexible())], spacing: 16) {
-                        ForEach(favouriteJokes) { joke in
-                            JokeCard(
-                                joke: joke,
-                                isExpanded: selectedCardIndex == favouriteJokes.firstIndex(where: { $0.id == joke.id }),
-                                onTap: {
-                                    if let index = favouriteJokes.firstIndex(where: { $0.id == joke.id }) {
-                                        selectedCardIndex = (selectedCardIndex == index) ? nil : index
-                                    }
-                                }
-                            )
-                            .frame(height: 140)
-                        }
-                    }
-                    .padding()
+                    jokeListView
                 }
             }
             .navigationTitle("Избранное")
@@ -56,26 +33,72 @@ struct FavoritesView: View {
         }
     }
     
-    private func syncroniseJokes() {
-        let local = jokeService.favoriteJokes
-        let server = userService.currentUser?.favouriteJokesIDs ?? []
-        if local == server {return}
-        if local.count < server.count {
-            jokeService.favoriteJokes = server
-        } else {
-            guard let user = userService.currentUser else { return }
-            userService.currentUser?.favouriteJokesIDs = local
-            userService.saveUserToFirestore(user) { _ in
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "heart.slash")
+                .font(.system(size: 50))
+                .foregroundColor(.gray)
+            
+            Text("У вас пока нет избранных шуток")
+                .font(.headline)
+                .foregroundColor(.gray)
+            
+            Text("Добавляйте понравившиеся шутки в избранное, нажимая на сердечко")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding()
+    }
+    
+    private var jokeListView: some View {
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                ForEach(favouriteJokes) { joke in
+                    JokeCard(joke: joke)
+                        .padding(.horizontal)
+                }
             }
+            .padding(.vertical)
+            Color.clear.frame(height: 50)
         }
     }
     
+    // Оптимизация для `favouriteJokes`
+    var favouriteJokes: [Joke] {
+        let favoriteIDs = jokeService.favoriteJokes.isEmpty ?
+        (userService.currentUser?.favouriteJokesIDs ?? []) :
+        jokeService.favoriteJokes
+        return jokeService.allJokes.filter { favoriteIDs.contains($0.id ?? "") }
+    }
+    
+    private func syncroniseJokes() {
+        let local = jokeService.favoriteJokes
+        let server = userService.currentUser?.favouriteJokesIDs ?? []
+        
+        // Синхронизируем локальные избранные с серверными
+        if local != server {
+            if var user = userService.currentUser {
+                user.favouriteJokesIDs = local
+                Task {
+                    do {
+                        try await userService.saveUserToFirestore(user)
+                        // После успешного сохранения на сервере, обновляем кеш
+                        userService.saveUserToCache(user)
+                    } catch {
+                        print("Error syncing favorites: \(error)")
+                    }
+                }
+            }
+        }
+    }
 }
 
 #Preview {
-    TabBarView()
-        .environmentObject(AppService())
+    FavoritesView()
         .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(AppService())
         .preferredColorScheme(.dark)
 }

@@ -11,17 +11,18 @@ import SwiftUI
 
 struct Joke: Identifiable, Codable, Hashable {
     @DocumentID var id: String?
-    var setup: String // изменяемое свойство
-    var punchline: String // изменяемое свойство
-    var status: String // Добавляем поле для статуса шутки
+    var setup: String
+    var punchline: String
+    var status: String
     var author: String
+    var createdAt: Date?
 }
 
 class JokeService: ObservableObject {
-    
     private let db = Firestore.firestore()
     private let cacheDirectory: URL
     private let jokesCacheFileName = "cached_jokes.json"
+    private let favoriteJokesKey = "FavoriteJokes"
     
     @Published var allJokes = [Joke]()
     @Published var favoriteJokes = [String]()
@@ -30,16 +31,18 @@ class JokeService: ObservableObject {
     init() {
         self.cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         
-        // Загружаем шутки из кэша при инициализации
+        // Загружаем шутки из кеша при инициализации
         if let cachedJokes = loadJokesFromCache() {
             self.allJokes = cachedJokes
         }
         
+        // Загружаем избранные шутки из кеша
+        loadFavoriteJokes()
+        
         // Затем обновляем данные с сервера
-        fetchJokes { jokes in
-            self.allJokes = jokes
+        Task {
+            await fetchJokes()
         }
-        loadFavoriteJokesFromUserDefaults()
     }
     
     // MARK: - Cache Management
@@ -50,7 +53,6 @@ class JokeService: ObservableObject {
         do {
             let data = try encoder.encode(jokes)
             try data.write(to: cacheURL)
-            print("Jokes saved to cache: \(jokes.count) jokes")
         } catch {
             print("Failed to save jokes to cache: \(error)")
         }
@@ -59,17 +61,11 @@ class JokeService: ObservableObject {
     private func loadJokesFromCache() -> [Joke]? {
         let cacheURL = cacheDirectory.appendingPathComponent(jokesCacheFileName)
         
-        guard FileManager.default.fileExists(atPath: cacheURL.path) else {
-            print("No cached jokes found")
-            return nil
-        }
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return nil }
         
         do {
             let data = try Data(contentsOf: cacheURL)
-            let decoder = JSONDecoder()
-            let jokes = try decoder.decode([Joke].self, from: data)
-            print("Loaded \(jokes.count) jokes from cache")
-            return jokes
+            return try JSONDecoder().decode([Joke].self, from: data)
         } catch {
             print("Failed to load jokes from cache: \(error)")
             return nil
@@ -79,84 +75,81 @@ class JokeService: ObservableObject {
     private func clearJokesCache() {
         let cacheURL = cacheDirectory.appendingPathComponent(jokesCacheFileName)
         try? FileManager.default.removeItem(at: cacheURL)
-        print("Jokes cache cleared")
     }
     
     // MARK: - Joke Operations
-    func fetchJokes(completion: @escaping ([Joke]) -> Void) {
+    @MainActor
+    func fetchJokes() async {
         isLoading = true
         
-        db.collection("jokes").getDocuments { [weak self] snapshot, error in
-            guard let self = self else { return }
+        do {
+            let snapshot = try await db.collection("jokes")
+                .whereField("status", isEqualTo: "approved")
+                .getDocuments()
             
-            if let error = error {
-                print("Error fetching jokes: \(error)")
-                self.isLoading = false
-                completion([])
-                return
+            let jokes = snapshot.documents.compactMap { document in
+                try? document.data(as: Joke.self)
             }
+            .sorted { ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast) }
             
-            guard let documents = snapshot?.documents else {
-                print("No jokes found")
-                self.isLoading = false
-                completion([])
-                return
-            }
-            
-            let jokes = documents.compactMap { document -> Joke? in
-                do {
-                    return try document.data(as: Joke.self)
-                } catch {
-                    return nil
-                }
-            }
-            
-            DispatchQueue.main.async {
-                self.allJokes = jokes
-                self.saveJokesToCache(jokes)
-                self.isLoading = false
-                completion(jokes)
-            }
+            // Обновляем данные и сохраняем в кеш
+            self.allJokes = jokes
+            self.saveJokesToCache(jokes)
+            isLoading = false
+        } catch {
+            print("Error fetching jokes: \(error)")
+            isLoading = false
         }
     }
     
     func addJokeForModeration(joke: Joke, completion: @escaping (Bool) -> Void) {
-        // Генерируем уникальный ID для шутки
         let jokeID = UUID().uuidString
         
-        // Создаём словарь с данными шутки
-        let jokeData: [String: Any] = [
+        var jokeData: [String: Any] = [
             "id": jokeID,
             "setup": joke.setup,
             "punchline": joke.punchline,
-            "status": "pending", // Статус шутки на премодерации
-            "author": joke.author
+            "status": "pending",
+            "author": joke.author,
+            "createdAt": Timestamp(date: Date())
         ]
         
-        // Сохраняем шутку в коллекцию с указанным ID
         db.collection("jokes")
-            .document(jokeID) // Используем jokeID как имя документа
+            .document(jokeID)
             .setData(jokeData) { error in
                 if let error = error {
-                    print("Ошибка при добавлении шутки: \(error.localizedDescription)")
+                    print("Error adding joke: \(error)")
                     completion(false)
                 } else {
-                    print("Шутка успешно добавлена на премодерацию с ID: \(jokeID)")
                     completion(true)
                 }
             }
     }
     
-    // Сохранение избранных шуток в UserDefaults
-    private func saveFavoriteJokesToUserDefaults() {
-        UserDefaults.standard.set(favoriteJokes, forKey: "favoriteJokesKey")
+    // MARK: - Favorite Jokes Management
+    private func loadFavoriteJokes() {
+        if let saved = UserDefaults.standard.array(forKey: favoriteJokesKey) as? [String] {
+            self.favoriteJokes = saved
+        }
     }
     
-    // Загрузка избранных шуток из UserDefaults
-    private func loadFavoriteJokesFromUserDefaults() {
-        if let savedJokes = UserDefaults.standard.array(forKey: "favoriteJokesKey") as? [String] {
-            self.favoriteJokes = savedJokes
+    private func saveFavoriteJokes() {
+        UserDefaults.standard.set(favoriteJokes, forKey: favoriteJokesKey)
+        UserDefaults.standard.synchronize()
+    }
+    
+    func syncFavorites(with serverFavorites: [String]) {
+        // Если на сервере есть избранные шутки, обновляем локальные данные
+        if !serverFavorites.isEmpty {
+            favoriteJokes = serverFavorites
+            saveFavoriteJokes()
+        } else if favoriteJokes.isEmpty {
+            // Если и на сервере и локально пусто, сохраняем пустой массив
+            favoriteJokes = []
+            saveFavoriteJokes()
         }
+        // Если на сервере пусто, а локально есть данные - оставляем локальные данные
+        // и они будут отправлены на сервер при следующей синхронизации
     }
     
     func toggleFavorite(_ jokeId: String) {
@@ -165,6 +158,12 @@ class JokeService: ObservableObject {
         } else {
             favoriteJokes.append(jokeId)
         }
-        saveFavoriteJokesToUserDefaults()
+        saveFavoriteJokes()
+    }
+    
+    func clearFavoritesCache() {
+        favoriteJokes = []
+        UserDefaults.standard.removeObject(forKey: favoriteJokesKey)
+        UserDefaults.standard.synchronize()
     }
 }

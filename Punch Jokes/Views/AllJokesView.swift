@@ -13,50 +13,59 @@ struct AllJokesView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    @State private var selectedCardIndex: Int? = nil
-//    @State private var jokes = [Joke]()
-    private var jokes: [Joke] {
-        jokeService.allJokes
+    var body: some View {
+        contentView
     }
     
-    var body: some View {
+    private var contentView: some View {
         NavigationView {
             ScrollView {
-                if jokes.isEmpty {
-                    Text("Нет шуток для отображения.")
-                        .font(.headline)
-                        .foregroundColor(.gray)
-                        .padding()
+                if jokeService.allJokes.isEmpty {
+                    emptyStateView
                 } else {
-                    LazyVGrid(columns: [GridItem(.flexible())], spacing: 16) {
-                        ForEach(jokes) { joke in
-                            JokeCard(
-                                joke: joke,
-                                isExpanded: selectedCardIndex == jokes.firstIndex(where: { $0.id == joke.id }),
-                                onTap: {
-                                    if let index = jokes.firstIndex(where: { $0.id == joke.id }) {
-                                            selectedCardIndex = (selectedCardIndex == index) ? nil : index
-                                    }
-                                }
-                            )
-                            .frame(height: 140) // Убедимся, что карточки имеют правильную высоту для кликов
-                        }
-                    }
-                    .padding()
+                    jokeListView
                 }
+                Color.clear.frame(height: 50)
             }
-            .navigationTitle("Все шутки")  // Заголовок для экрана
-            
-            
-            
+            .navigationTitle("Все шутки")
+            .refreshable {
+                await jokeService.fetchJokes()
+            }
         }
+    }
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 50))
+                .foregroundColor(.gray)
+            
+            Text("Нет шуток для отображения")
+                .font(.headline)
+                .foregroundColor(.gray)
+            
+            Text("Потяните вниз, чтобы обновить")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+        }
+        .padding()
+    }
+    
+    private var jokeListView: some View {
+        LazyVStack(spacing: 16) {
+            ForEach(jokeService.allJokes) { joke in
+                JokeCard(joke: joke)
+                    .padding(.horizontal)
+            }
+        }
+        .padding(.vertical)
     }
 }
 
 #Preview {
-    TabBarView()
-        .environmentObject(AppService())
+    AllJokesView()
         .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(AppService())
         .preferredColorScheme(.dark)
 }

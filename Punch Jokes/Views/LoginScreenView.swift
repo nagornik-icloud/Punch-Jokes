@@ -167,25 +167,27 @@ struct LoginScreenView: View {
         isLoading = true
         
         if isSignUp {
-            Auth.auth().createUser(withEmail: email, password: password) { result, error in
-                handleAuthResult(result: result, error: error)
+            userService.registerUser(email: email, password: password, username: nil) { result in
+                switch result {
+                case .success:
+                    isLoading = false
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
             }
         } else {
-            Auth.auth().signIn(withEmail: email, password: password) { result, error in
-                handleAuthResult(result: result, error: error)
+            userService.loginUser(email: email, password: password) { result in
+                switch result {
+                case .success:
+                    isLoading = false
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
             }
-        }
-    }
-    
-    private func handleAuthResult(result: AuthDataResult?, error: Error?) {
-        if let error = error {
-            errorMessage = error.localizedDescription
-            showError = true
-            isLoading = false
-        } else if let user = result?.user {
-            userService.currentUser = User(id: user.uid, email: user.email ?? "", createdAt: user.metadata.creationDate ?? Date())
-//            userService.saveUserToCache(userService.currentUser!)
-            isLoading = false
         }
     }
 }

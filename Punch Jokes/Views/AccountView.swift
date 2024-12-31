@@ -250,16 +250,21 @@ struct UserProfileView: View {
         userService.currentUser?.username = userNickname
         
         if let user = userService.currentUser {
-            userService.saveUserToFirestore(user) { result in
-                isLoading = false
-                switch result {
-                case .success:
-                    // Успешное сохранение
-                    break
-                case .failure(let error):
-                    showError(message: "Failed to save changes: \(error.localizedDescription)")
+            Task {
+                do {
+                    try await userService.saveUserToFirestore(user)
+                    await MainActor.run {
+                        isLoading = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        isLoading = false
+                        showError(message: "Failed to save changes: \(error.localizedDescription)")
+                    }
                 }
             }
+        } else {
+            isLoading = false
         }
     }
     
