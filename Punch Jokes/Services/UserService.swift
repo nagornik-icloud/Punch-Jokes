@@ -62,7 +62,7 @@ class UserService: ObservableObject {
         print("👤 UserService: Starting initial data load")
         do {
             isLoading = true
-            defer { 
+            defer {
                 isLoading = false
                 print("👤 UserService: Initial data load completed")
             }
@@ -182,5 +182,74 @@ class UserService: ObservableObject {
         }
         try await updateUser(user)
         print("👤 UserService: Successfully saved current user to Firestore")
+    }
+    
+    // MARK: - Authentication Methods
+    func login(email: String, password: String) async throws {
+        print("👤 UserService: Attempting to login with email: \(email)")
+        do {
+            let result = try await auth.signIn(withEmail: email, password: password)
+            print("👤 UserService: Successfully logged in user: \(result.user.uid)")
+            await fetchCurrentUser(userId: result.user.uid)
+        } catch {
+            print("👤 UserService: Login failed: \(error)")
+            throw error
+        }
+    }
+    
+    func register(email: String, password: String, username: String) async throws {
+        print("👤 UserService: Attempting to register with email: \(email)")
+        do {
+            let result = try await auth.createUser(withEmail: email, password: password)
+            print("👤 UserService: Successfully created user: \(result.user.uid)")
+            
+            // Создаем профиль пользователя
+            let user = User(
+                id: result.user.uid,
+                email: email,
+                username: username,
+                name: username,
+                createdAt: Date()
+            )
+            
+            // Сохраняем в Firestore
+            try await db.collection("users").document(user.id).setData(from: user)
+            print("👤 UserService: Saved user profile to Firestore")
+            
+            await MainActor.run {
+                self.currentUser = user
+                self.allUsers.append(user)
+                self.userNameCache[user.id] = username
+                LocalStorage.saveUserNameCache(self.userNameCache)
+            }
+        } catch {
+            print("👤 UserService: Registration failed: \(error)")
+            throw error
+        }
+    }
+    
+    func logout() async throws {
+        print("👤 UserService: Attempting to logout")
+        do {
+            try auth.signOut()
+            await MainActor.run {
+                self.currentUser = nil
+                print("👤 UserService: Successfully logged out")
+            }
+        } catch {
+            print("👤 UserService: Logout failed: \(error)")
+            throw error
+        }
+    }
+    
+    func resetPassword(email: String) async throws {
+        print("👤 UserService: Attempting to send password reset for email: \(email)")
+        do {
+            try await auth.sendPasswordReset(withEmail: email)
+            print("👤 UserService: Password reset email sent")
+        } catch {
+            print("👤 UserService: Password reset failed: \(error)")
+            throw error
+        }
     }
 }
