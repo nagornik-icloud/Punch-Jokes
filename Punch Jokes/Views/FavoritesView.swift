@@ -102,9 +102,7 @@ struct FavoritesView: View {
                 user.favouriteJokesIDs = local
                 Task {
                     do {
-                        try await userService.saveUserToFirestore(user)
-                        // После успешного сохранения на сервере, обновляем кеш
-                        userService.saveUserToCache(user)
+                        try await userService.updateUsername(user.username ?? "")
                     } catch {
                         print("Error syncing favorites: \(error)")
                     }

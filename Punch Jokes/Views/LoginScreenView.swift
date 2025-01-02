@@ -166,27 +166,18 @@ struct LoginScreenView: View {
     private func handleAuthentication() {
         isLoading = true
         
-        if isSignUp {
-            userService.registerUser(email: email, password: password, username: nil) { result in
-                switch result {
-                case .success:
-                    isLoading = false
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
+        Task {
+            do {
+                if isSignUp {
+                    _ = try await userService.registerUser(email: email, password: password, username: nil)
+                } else {
+                    try await userService.signIn(email: email, password: password)
                 }
-            }
-        } else {
-            userService.loginUser(email: email, password: password) { result in
-                switch result {
-                case .success:
-                    isLoading = false
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
-                }
+                isLoading = false
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+                isLoading = false
             }
         }
     }

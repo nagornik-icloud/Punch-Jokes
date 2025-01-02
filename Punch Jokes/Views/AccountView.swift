@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import FirebaseStorage
 
 struct AccountView: View {
     @EnvironmentObject var jokeService: JokeService
@@ -69,7 +70,8 @@ struct UserProfileView: View {
                             .frame(width: 140, height: 140)
                             .shadow(color: .purple.opacity(0.3), radius: 10, x: 0, y: 5)
                         
-                        if let image = userService.userImage {
+                        if let userId = userService.currentUser?.id,
+                           let image = jokeService.userPhotos[userId] {
                             Image(uiImage: image)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
@@ -164,9 +166,16 @@ struct UserProfileView: View {
                         Button(action: {
                             withAnimation {
                                 isLoading = true
-                                userService.logoutUser { _ in
-                                    isLoading = false
-                                    appService.closeAccScreen()
+                                Task {
+                                    do {
+                                        try userService.signOut()
+                                        isLoading = false
+                                        appService.closeAccScreen()
+                                    } catch {
+                                        isLoading = false
+                                        errorMessage = error.localizedDescription
+                                        showError = true
+                                    }
                                 }
                             }
                         }) {
@@ -274,9 +283,23 @@ struct UserProfileView: View {
     }
     
     private func uploadImage(_ image: UIImage) {
+        guard let userId = userService.currentUser?.id,
+              let imageData = image.jpegData(compressionQuality: 0.7) else { return }
+        
         Task {
             do {
-                try await userService.updateUserImage(image)
+                let imageRef = jokeService.storage.child("user_photos/\(userId).jpg")
+                
+                // Загружаем на сервер
+                let metadata = StorageMetadata()
+                metadata.contentType = "image/jpeg"
+                _ = try await imageRef.putDataAsync(imageData, metadata: metadata)
+                
+                // Обновляем локальный кэш
+                await MainActor.run {
+                    jokeService.userPhotos[userId] = image
+                    jokeService.saveUserPhotoToCache(userId: userId, image: image)
+                }
             } catch {
                 print("Error updating user image: \(error)")
             }

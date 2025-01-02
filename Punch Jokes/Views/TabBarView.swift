@@ -46,10 +46,10 @@ struct TabBarView: View {
             }
         }
         .onAppear {
-            setupKeyboardObservers()
+//            setupKeyboardObservers()
         }
         .onDisappear {
-            NotificationCenter.default.removeObserver(self)
+//            NotificationCenter.default.removeObserver(self)
         }
     }
     
@@ -77,9 +77,9 @@ struct TabBarView: View {
                     .animation(.spring(), value: isKeyboardVisible)
             }
         }
-        .overlay(
-            FavoriteSyncView()
-        )
+//        .overlay(
+//            FavoriteSyncView()
+//        )
         .onTapGesture {
             if isKeyboardVisible {
                 UIApplication.shared.endEditing()
