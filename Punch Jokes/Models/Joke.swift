@@ -1,12 +1,12 @@
 import Foundation
 import FirebaseFirestore
 
-struct Joke: Identifiable, Codable, Hashable {
-    var id: String?
-    var setup: String
-    var punchline: String
-    var status: String
-    var author: String
+class Joke: Identifiable, Codable, Equatable {
+    var id: String = ""
+    var setup: String = ""
+    var punchline: String = ""
+    var status: String = ""
+    var authorId: String = ""
     var createdAt: Date?
     
     enum CodingKeys: String, CodingKey {
@@ -14,50 +14,64 @@ struct Joke: Identifiable, Codable, Hashable {
         case setup
         case punchline
         case status
-        case author
+        case authorId
         case createdAt
     }
     
-    init(id: String? = nil, setup: String = "", punchline: String = "", status: String = "draft", author: String = "", createdAt: Date? = nil) {
-        self.id = id
-        self.setup = setup
-        self.punchline = punchline
-        self.status = status
-        self.author = author
-        self.createdAt = createdAt
-    }
-    
-    init(from decoder: Decoder) throws {
+    required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(String.self, forKey: .id)
+        id = try container.decode(String.self, forKey: .id)
         setup = try container.decode(String.self, forKey: .setup)
         punchline = try container.decode(String.self, forKey: .punchline)
         status = try container.decode(String.self, forKey: .status)
-        author = try container.decode(String.self, forKey: .author)
         
-        // Обработка даты из Firestore
+        // Пробуем декодировать authorId
+        if let author = try? container.decode(String.self, forKey: .authorId) {
+            // Если authorId - это email, используем константный ID
+            if author.contains("@") {
+                authorId = id
+            } else {
+                authorId = author
+            }
+        }
+        
+        // Пробуем декодировать createdAt
         if let timestamp = try? container.decode(Timestamp.self, forKey: .createdAt) {
             createdAt = timestamp.dateValue()
-        } else if let dateString = try? container.decode(String.self, forKey: .createdAt) {
-            let formatter = ISO8601DateFormatter()
-            createdAt = formatter.date(from: dateString)
+        } else if let date = try? container.decode(Date.self, forKey: .createdAt) {
+            createdAt = date
         } else {
-            createdAt = nil
+            createdAt = Date() // Значение по умолчанию
         }
     }
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(id, forKey: .id)
+        try container.encode(id, forKey: .id)
         try container.encode(setup, forKey: .setup)
         try container.encode(punchline, forKey: .punchline)
         try container.encode(status, forKey: .status)
-        try container.encode(author, forKey: .author)
-        
-        // При сохранении в кэш используем ISO8601 формат
-        if let date = createdAt {
-            let formatter = ISO8601DateFormatter()
-            try container.encode(formatter.string(from: date), forKey: .createdAt)
-        }
+        try container.encode(authorId, forKey: .authorId)
+        try container.encode(createdAt ?? Date(), forKey: .createdAt)
+    }
+    
+    init() {}
+    
+    init(id: String, setup: String, punchline: String, status: String, authorId: String, createdAt: Date?) {
+        self.id = id
+        self.setup = setup
+        self.punchline = punchline
+        self.status = status
+        self.authorId = authorId
+        self.createdAt = createdAt
+    }
+    
+    static func == (lhs: Joke, rhs: Joke) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.setup == rhs.setup &&
+               lhs.punchline == rhs.punchline &&
+               lhs.status == rhs.status &&
+               lhs.authorId == rhs.authorId &&
+               lhs.createdAt == rhs.createdAt
     }
 }

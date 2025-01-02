@@ -2,25 +2,26 @@ import SwiftUI
 import FirebaseAuth
 
 struct LoginScreenView: View {
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isLoading = false
-    @State private var showError = false
-    @State private var errorMessage = ""
-    @State private var isSignUp = false
-    @State private var showPassword = false
-    @State private var animate = false
-    
-    @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var userService: UserService
     
-    var onTapX: () -> Void
+    @State private var email = ""
+    @State private var password = ""
+    @State private var username = ""
+    @State private var isRegistering = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isLoading = false
+    
+    @Environment(\.colorScheme) var colorScheme
+    @EnvironmentObject var appService: AppService
+    
+    let onTapX: () -> Void
     
     var backgroundGradient: LinearGradient {
         LinearGradient(
             gradient: Gradient(colors: [
-                Color(colorScheme == .dark ? .black : .white),
-                Color.purple.opacity(0.2)
+                Color.purple,
+                Color.blue
             ]),
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -39,18 +40,12 @@ struct LoginScreenView: View {
                         .resizable()
                         .frame(width: 80, height: 80)
                         .foregroundColor(.purple)
-                        .scaleEffect(animate ? 1.1 : 1.0)
-                        .animation(
-                            Animation.easeInOut(duration: 1.5)
-                                .repeatForever(autoreverses: true),
-                            value: animate
-                        )
                     
-                    Text(isSignUp ? "Create Account" : "Welcome Back")
+                    Text(isRegistering ? "Create Account" : "Welcome Back")
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text(isSignUp ? "Sign up to get started" : "Sign in to continue")
+                    Text(isRegistering ? "Sign up to get started" : "Sign in to continue")
                         .font(.subheadline)
                         .foregroundColor(.gray)
                 }
@@ -75,19 +70,28 @@ struct LoginScreenView: View {
                             .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                     )
                     
+                    if isRegistering {
+                        // Username field
+                        HStack(spacing: 15) {
+                            Image(systemName: "person.fill")
+                                .foregroundColor(.gray)
+                            TextField("Username", text: $username)
+                                .textContentType(.username)
+                        }
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                        )
+                    }
+                    
                     // Password field
                     HStack(spacing: 15) {
                         Image(systemName: "lock.fill")
                             .foregroundColor(.gray)
-                        if showPassword {
-                            TextField("Password", text: $password)
-                        } else {
-                            SecureField("Password", text: $password)
-                        }
-                        Button(action: { showPassword.toggle() }) {
-                            Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
-                                .foregroundColor(.gray)
-                        }
+                        SecureField("Password", text: $password)
                     }
                     .padding()
                     .background(.ultraThinMaterial)
@@ -101,47 +105,33 @@ struct LoginScreenView: View {
                 
                 // Action Buttons
                 VStack(spacing: 15) {
-                    Button(action: handleAuthentication) {
-                        HStack {
-                            Image(systemName: isSignUp ? "person.badge.plus" : "arrow.right.circle")
-                            Text(isSignUp ? "Sign Up" : "Sign In")
+                    if userService.isLoading {
+                        ProgressView()
+                    } else {
+                        Button(action: performAction) {
+                            HStack {
+                                Image(systemName: isRegistering ? "person.badge.plus" : "arrow.right.circle")
+                                Text(isRegistering ? "Sign Up" : "Sign In")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                            .shadow(color: Color.purple.opacity(0.3), radius: 5, y: 3)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.purple)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 15))
-                        .shadow(color: Color.purple.opacity(0.3), radius: 5, y: 3)
-                    }
-                    .disabled(email.isEmpty || password.isEmpty || isLoading)
-                    .opacity(email.isEmpty || password.isEmpty || isLoading ? 0.6 : 1)
-                    
-                    Button(action: { withAnimation { isSignUp.toggle() }}) {
-                        Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                            .foregroundColor(.purple)
+                        .disabled(email.isEmpty || password.isEmpty || (isRegistering && username.isEmpty))
+                        .opacity(email.isEmpty || password.isEmpty || (isRegistering && username.isEmpty) ? 0.6 : 1)
+                        
+                        Button(action: { withAnimation { isRegistering.toggle() }}) {
+                            Text(isRegistering ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
+                                .foregroundColor(.purple)
+                        }
                     }
                 }
                 .padding(.horizontal)
             }
             .padding(.vertical)
-            
-            // Close Button
-//            VStack {
-//                HStack {
-//                    Spacer()
-//                    Button(action: onTapX) {
-//                        Image(systemName: "xmark.circle.fill")
-//                            .font(.title)
-//                            .foregroundColor(.gray)
-//                            .padding()
-//                            .background(.ultraThinMaterial)
-//                            .clipShape(Circle())
-//                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
-//                    }
-//                }
-//                Spacer()
-//            }
-//            .padding()
             
             if isLoading {
                 Color.black.opacity(0.4)
@@ -158,26 +148,28 @@ struct LoginScreenView: View {
         } message: {
             Text(errorMessage)
         }
-        .onAppear {
-            animate = true
-        }
     }
     
-    private func handleAuthentication() {
+    private func performAction() {
         isLoading = true
         
         Task {
             do {
-                if isSignUp {
-                    _ = try await userService.registerUser(email: email, password: password, username: nil)
+                if isRegistering {
+//                    try await userService.registerUser(email: email, password: password, username: username)
                 } else {
-                    try await userService.signIn(email: email, password: password)
+//                    try await userService.login(email: email, password: password)
                 }
-                isLoading = false
+                await MainActor.run {
+                    isLoading = false
+                    appService.closeAccScreen()
+                }
             } catch {
-                errorMessage = error.localizedDescription
-                showError = true
-                isLoading = false
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
             }
         }
     }
@@ -186,5 +178,6 @@ struct LoginScreenView: View {
 #Preview {
     LoginScreenView(onTapX: {})
         .environmentObject(UserService())
+        .environmentObject(AppService())
         .preferredColorScheme(.dark)
 }

@@ -10,189 +10,177 @@ import FirebaseAuth
 import FirebaseFirestore
 import SwiftUI
 
-// MARK: - User Model
-struct User: Identifiable, Codable {
-    var id: String
-    var email: String
-    var username: String?
-    var name: String?
-    var createdAt: Date
-    var favouriteJokesIDs: [String]?
-}
-
-// MARK: - UserService
-@MainActor
 class UserService: ObservableObject {
     // MARK: - Properties
-    public let auth = Auth.auth()
-    public let db = Firestore.firestore()
+    private let auth = Auth.auth()
+    private let db = Firestore.firestore()
     
-    @Published public var currentUser: User?
-    @Published public var isFirstTime = true
-    @Published public var loaded = false
-    @Published public var allUsers: [User] = []
-    
-    // MARK: - Cache Properties
-    public var userNameCache: [String: String] = [:]
-    let cacheDirectory: URL
-    let userCacheFileName = "cached_user.json"
-    let allUsersCacheFileName = "cached_all_users.json"
+    @Published var currentUser: User?
+    @Published var allUsers: [User] = []
+    @Published var userNameCache: [String: String] = [:]
+    @Published var isLoading = true
+    @Published var error: Error?
     
     init() {
-        self.cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        print("👤 UserService: Initializing...")
         
-        // Загружаем данные из кэша
-        loadUserFromCache()
-        loadAllUsersFromCache()
+        // Загружаем кэш имен пользователей
+        userNameCache = LocalStorage.loadUserNameCache()
+        isLoading = false
+        print("👤 UserService: Loaded username cache with \(userNameCache.count) entries")
         
-        // Если пользователь авторизован, обновляем данные с сервера
-        if auth.currentUser != nil {
-            Task {
-                await fetchCurrentUser()
-                await fetchAllUsers()
-            }
-        } else {
-            loaded = true
+        Task {
+            await loadInitialData()
+            setupAuthStateListener()
         }
+        print("👤 UserService: Initialization complete")
     }
     
-    // MARK: - Cache Management
-    func loadUserFromCache() {
-        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
-        guard let data = try? Data(contentsOf: cacheURL),
-              let user = try? JSONDecoder().decode(User.self, from: data) else {
-            return
-        }
-        self.currentUser = user
-    }
-    
-    func saveUserToCache() {
-        guard let user = currentUser else { return }
-        let cacheURL = cacheDirectory.appendingPathComponent(userCacheFileName)
-        if let data = try? JSONEncoder().encode(user) {
-            try? data.write(to: cacheURL)
-        }
-    }
-    
-    // MARK: - All Users Cache Management
-    func loadAllUsersFromCache() {
-        let cacheURL = cacheDirectory.appendingPathComponent(allUsersCacheFileName)
-        guard let data = try? Data(contentsOf: cacheURL),
-              let users = try? JSONDecoder().decode([User].self, from: data) else {
-            return
-        }
-        self.allUsers = users
-        
-        // Обновляем кэш имен пользователей
-        for user in users {
-            if let username = user.username {
-                userNameCache[user.id] = username
-            }
-        }
-    }
-    
-    func saveAllUsersToCache() {
-        let cacheURL = cacheDirectory.appendingPathComponent(allUsersCacheFileName)
-        if let data = try? JSONEncoder().encode(allUsers) {
-            try? data.write(to: cacheURL)
-        }
-    }
-    
-    // MARK: - User Data Management
-    func fetchCurrentUser() async {
-        guard let authUser = auth.currentUser else {
-            self.currentUser = nil
-            self.loaded = true
-            return
-        }
-        
-        do {
-            let document = try await db.collection("users").document(authUser.uid).getDocument()
-            if let user = try? document.data(as: User.self) {
-                self.currentUser = user
-                saveUserToCache()
-                self.loaded = true
-            }
-        } catch {
-            print("Error fetching user: \(error)")
-            self.loaded = true
-        }
-    }
-    
-    func fetchAllUsers() async {
-        do {
-            let snapshot = try await db.collection("users").getDocuments()
-            let users = snapshot.documents.compactMap { document -> User? in
-                try? document.data(as: User.self)
+    private func setupAuthStateListener() {
+        print("👤 UserService: Setting up auth state listener")
+        auth.addStateDidChangeListener { [weak self] _, user in
+            guard let self = self else {
+                print("👤 UserService: Self is nil in auth listener")
+                return
             }
             
+            if let user = user {
+                print("👤 UserService: Auth state changed - user logged in with ID: \(user.uid)")
+                Task {
+                    await self.fetchCurrentUser(userId: user.uid)
+                }
+            } else {
+                print("👤 UserService: Auth state changed - user logged out")
+                DispatchQueue.main.async {
+                    self.currentUser = nil
+                }
+            }
+        }
+    }
+    
+    private func loadInitialData() async {
+        print("👤 UserService: Starting initial data load")
+        do {
+            isLoading = true
+            defer { 
+                isLoading = false
+                print("👤 UserService: Initial data load completed")
+            }
+            
+            // Загружаем всех пользователей
+            print("👤 UserService: Fetching all users")
+            let snapshot = try await db.collection("users").getDocuments()
+            print("👤 UserService: Retrieved \(snapshot.documents.count) user documents")
+            
+            let fetchedUsers = try snapshot.documents.compactMap { document -> User? in
+                do {
+                    let user = try document.data(as: User.self)
+                    print("👤 UserService: Successfully decoded user: \(user.id)")
+                    return user
+                } catch {
+                    print("👤 UserService: Failed to decode user from document \(document.documentID): \(error)")
+                    return nil
+                }
+            }
+            
+            // Обновляем список пользователей
             await MainActor.run {
-                self.allUsers = users
+                self.allUsers = fetchedUsers
+                print("👤 UserService: Updated users array with \(fetchedUsers.count) users")
                 
                 // Обновляем кэш имен пользователей
-                for user in users {
-                    if let username = user.username {
-                        userNameCache[user.id] = username
-                    }
+                for user in fetchedUsers {
+                    let name = user.username ?? user.name ?? "Пользователь"
+                    self.userNameCache[user.id] = name
+                    print("👤 UserService: Cached name for user \(user.id): \(name)")
                 }
                 
-                saveAllUsersToCache()
+                // Сохраняем кэш
+                LocalStorage.saveUserNameCache(self.userNameCache)
+            }
+            
+            // Если есть текущий пользователь, загружаем его данные
+            if let currentUserId = auth.currentUser?.uid {
+                print("👤 UserService: Current user found, fetching details for ID: \(currentUserId)")
+                await fetchCurrentUser(userId: currentUserId)
+            } else {
+                print("👤 UserService: No current user found")
+            }
+            
+        } catch {
+            print("👤 UserService: Error during initial data load: \(error)")
+            self.error = error
+        }
+    }
+    
+    private func fetchCurrentUser(userId: String) async {
+        print("👤 UserService: Fetching current user with ID: \(userId)")
+        do {
+            let document = try await db.collection("users").document(userId).getDocument()
+            await MainActor.run {
+                if let user = try? document.data(as: User.self) {
+                    self.currentUser = user
+                    print("👤 UserService: Successfully fetched and set current user: \(user.id)")
+                } else {
+                    print("👤 UserService: Failed to decode current user document")
+                    self.error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode user data"])
+                }
             }
         } catch {
-            print("Error fetching all users: \(error)")
-        }
-    }
-    
-    // MARK: - Authentication
-    func signIn(email: String, password: String) async throws {
-        try await auth.signIn(withEmail: email, password: password)
-        await fetchCurrentUser()
-    }
-    
-    func signOut() throws {
-        try auth.signOut()
-        self.currentUser = nil
-    }
-    
-    func registerUser(email: String, password: String, username: String?) async throws -> User {
-        let authResult = try await auth.createUser(withEmail: email, password: password)
-        
-        let user = User(
-            id: authResult.user.uid,
-            email: email,
-            username: username,
-            name: nil,
-            createdAt: Date(),
-            favouriteJokesIDs: []
-        )
-        
-        try await saveUserToFirestore(user)
-        self.currentUser = user
-        saveUserToCache()
-        return user
-    }
-    
-    func saveUserToFirestore(_ user: User) async throws {
-        try db.collection("users").document(user.id).setData(from: user)
-    }
-    
-    // MARK: - User Data Updates
-    func updateUsername(_ username: String) async throws {
-        guard var user = currentUser else { return }
-        user.username = username
-        try await saveUserToFirestore(user)
-        
-        await MainActor.run {
-            self.currentUser = user
-            self.userNameCache[user.id] = username
-            
-            // Обновляем пользователя в общем списке
-            if let index = allUsers.firstIndex(where: { $0.id == user.id }) {
-                allUsers[index] = user
-                saveAllUsersToCache()
+            print("👤 UserService: Error fetching current user: \(error)")
+            await MainActor.run {
+                self.error = error
             }
-            
-            saveUserToCache()
         }
+    }
+    
+    func logOut() throws {
+        print("👤 UserService: Attempting to log out")
+        do {
+            try auth.signOut()
+            currentUser = nil
+            print("👤 UserService: Successfully logged out")
+        } catch {
+            print("👤 UserService: Error during logout: \(error)")
+            throw error
+        }
+    }
+    
+    func updateUser(_ user: User) async throws {
+        print("👤 UserService: Updating user with ID: \(user.id)")
+        do {
+            try await db.collection("users").document(user.id).setData(from: user)
+            print("👤 UserService: Successfully updated user in Firestore")
+            
+            await MainActor.run {
+                if user.id == currentUser?.id {
+                    currentUser = user
+                    print("👤 UserService: Updated current user")
+                }
+                if let index = allUsers.firstIndex(where: { $0.id == user.id }) {
+                    allUsers[index] = user
+                    print("👤 UserService: Updated user in allUsers array")
+                }
+                userNameCache[user.id] = user.username ?? user.name ?? "Пользователь"
+                print("👤 UserService: Updated user in name cache")
+                
+                // Сохраняем обновленный кэш
+                LocalStorage.saveUserNameCache(userNameCache)
+            }
+        } catch {
+            print("👤 UserService: Error updating user: \(error)")
+            throw error
+        }
+    }
+    
+    func saveUserToFirestore() async throws {
+        print("👤 UserService: Attempting to save current user to Firestore")
+        guard let user = currentUser else {
+            let error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No current user available"])
+            print("👤 UserService: Error - No current user available")
+            throw error
+        }
+        try await updateUser(user)
+        print("👤 UserService: Successfully saved current user to Firestore")
     }
 }

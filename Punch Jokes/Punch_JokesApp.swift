@@ -18,12 +18,12 @@ struct YourApp: App {
     @StateObject var appService = AppService()
     @StateObject var userService = UserService()
     @StateObject var jokeService = JokeService()
-    
+    @State private var isLoading = false
     
     init() {
         // Инициализация Firebase
         FirebaseApp.configure()
-
+        LocalStorage.setupDirectories()
         
         
     }
@@ -34,6 +34,13 @@ struct YourApp: App {
                 .environmentObject(appService)
                 .environmentObject(userService)
                 .environmentObject(jokeService)
+//                .task {
+//                    print("📱 App: Loading initial data...")
+//                    await userService.loadInitialData()
+//                    await jokeService.loadInitialData()
+//                    isLoading = false
+//                    print("📱 App: Initial load complete")
+//                }
             
         }
     }
@@ -50,4 +57,3 @@ let db = Firestore.firestore()
         .environmentObject(UserService())
         .preferredColorScheme(.dark)
 }
-

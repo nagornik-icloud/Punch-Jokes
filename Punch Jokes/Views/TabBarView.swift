@@ -39,18 +39,22 @@ struct TabBarView: View {
             backgroundGradient
                 .ignoresSafeArea()
             
-            if !userService.loaded {
+            if userService.isLoading || jokeService.isLoading {
                 LoadingView()
             } else {
                 mainContent
             }
         }
         .onAppear {
-//            setupKeyboardObservers()
+            Task {
+                print("TabBarView appeared, fetching jokes...")
+//                await jokeService.fetchJokes()
+            }
         }
         .onDisappear {
 //            NotificationCenter.default.removeObserver(self)
         }
+        
     }
     
     private var mainContent: some View {
@@ -80,11 +84,11 @@ struct TabBarView: View {
 //        .overlay(
 //            FavoriteSyncView()
 //        )
-        .onTapGesture {
-            if isKeyboardVisible {
-                UIApplication.shared.endEditing()
-            }
-        }
+//        .onTapGesture {
+//            if isKeyboardVisible {
+//                UIApplication.shared.endEditing()
+//            }
+//        }
     }
     
     private var customTabBar: some View {
@@ -151,8 +155,8 @@ struct TabBarView: View {
 
 #Preview {
     TabBarView()
-        .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(JokeService())
         .environmentObject(AppService())
         .preferredColorScheme(.dark)
 }

@@ -15,76 +15,60 @@ struct AllJokesView: View {
     
     @Environment(\.colorScheme) var colorScheme
     
+    @State var showError = false
+    @State var errorMessage = ""
+    
     var body: some View {
-        contentView
-    }
-    
-    var backgroundGradient: LinearGradient {
-        LinearGradient(
-            gradient: Gradient(colors: [
-                Color(colorScheme == .dark ? .black : .white),
-                Color.purple.opacity(0.2)
-            ]),
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-    
-    private var contentView: some View {
         NavigationView {
-            ZStack {
-                backgroundGradient
-                    .ignoresSafeArea()
-                ScrollView {
-                    if jokeService.allJokes.isEmpty {
-                        if jokeService.isLoading {
-                            ProgressView()
-                                .padding()
-                        } else {
-                            emptyStateView
+            Group {
+                if jokeService.jokes.isEmpty && jokeService.isLoading {
+                    ProgressView()
+                        .padding()
+                } else if jokeService.jokes.isEmpty {
+                    ContentUnavailableView("Нет шуток", 
+                        systemImage: "text.bubble",
+                        description: Text("Добавьте первую шутку!")
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(jokeService.jokes) { joke in
+                                JokeCard(joke: joke)
+                                    .padding(.horizontal)
+                            }
                         }
-                    } else {
-                        jokeListView
-                    }
-                }
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-                .navigationTitle("Все шутки")
-                .refreshable {
-                    Task {
-                        await jokeService.fetchJokes()
+                        .padding(.vertical)
                     }
                 }
             }
-        }
-    }
-    
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 50))
-                .foregroundColor(.gray)
-            
-            Text("Нет шуток для отображения")
-                .font(.headline)
-                .foregroundColor(.gray)
-            
-            Text("Потяните вниз, чтобы обновить")
-                .font(.subheadline)
-                .foregroundColor(.gray)
-        }
-        .padding()
-    }
-    
-    private var jokeListView: some View {
-        LazyVStack(spacing: 16) {
-            ForEach(jokeService.allJokes) { joke in
-                JokeCard(joke: joke)
-                    .padding(.horizontal)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .navigationTitle("Все шутки")
+            .refreshable {
+                Task {
+//                    await refreshJokes()
+                }
             }
-            Color.clear.frame(height: 50)
+            .onAppear {
+                print("AllJokesView appeared, jokes count: \(jokeService.jokes.count)")
+            }
         }
-        .padding(.vertical)
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    func refreshJokes() async {
+        do {
+            print("Refreshing jokes...")
+//            try await jokeService.fetchJokes()
+            print("Jokes refreshed, count: \(jokeService.jokes.count)")
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+        }
     }
 }
 
