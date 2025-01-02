@@ -8,39 +8,74 @@
 import SwiftUI
 import FirebaseFirestore
 
-struct SendJokeView: View {
+struct JokeStatusView: View {
+    let status: String
+    
+    var body: some View {
+        Text(status == "pending" ? "На модерации" : "Одобрено")
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(status == "pending" ? Color.orange.opacity(0.2) : Color.green.opacity(0.2))
+            )
+            .foregroundColor(status == "pending" ? .orange : .green)
+    }
+}
+
+struct AddJokeSheet: View {
+    @Environment(\.dismiss) var dismiss
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
     
     @State private var setup = ""
     @State private var punchline = ""
+    @State private var isLoading = false
     @State private var showAlert = false
     @State private var alertMessage = ""
-    @State private var isLoading = false
     
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Новая шутка")) {
-                    TextField("Начало шутки", text: $setup)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+            VStack(spacing: 20) {
+                Form {
+                    Section(header: Text("Начало шутки")) {
+                        TextEditor(text: $setup)
+                            .frame(height: 100)
+                    }
                     
-                    TextField("Конец шутки", text: $punchline)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    Section(header: Text("Концовка")) {
+                        TextEditor(text: $punchline)
+                            .frame(height: 100)
+                    }
                 }
                 
-                Section {
-                    Button(action: sendJoke) {
-                        if isLoading {
-                            ProgressView()
-                        } else {
-                            Text("Отправить")
-                        }
+                Button(action: sendJoke) {
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Отправить на модерацию")
+                            .fontWeight(.semibold)
                     }
-                    .disabled(setup.isEmpty || punchline.isEmpty || isLoading)
                 }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    isLoading ? Color.blue.opacity(0.5) : Color.blue
+                )
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+                .padding(.horizontal)
+                .disabled(
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    isLoading
+                )
             }
-            .navigationTitle("Добавить шутку")
+            .navigationTitle("Новая шутка")
             .alert("Внимание", isPresented: $showAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -58,19 +93,104 @@ struct SendJokeView: View {
         
         isLoading = true
         
-//        Task {
-//            do {
-//                try await jokeService.addJoke(setup, punchline, author: currentUser.id)
-//                setup = ""
-//                punchline = ""
-//                alertMessage = "Шутка успешно добавлена!"
-//            } catch {
-//                alertMessage = "Ошибка: \(error.localizedDescription)"
-//            }
-//            
-//            isLoading = false
-//            showAlert = true
-//        }
+        Task {
+            do {
+                try await jokeService.addJoke(setup, punchline, author: currentUser.id)
+                dismiss()
+            } catch {
+                alertMessage = "Ошибка: \(error.localizedDescription)"
+                showAlert = true
+            }
+            isLoading = false
+        }
+    }
+}
+
+struct SendJokeView: View {
+    @EnvironmentObject var jokeService: JokeService
+    @EnvironmentObject var userService: UserService
+    
+    @State private var showAddJokeSheet = false
+    
+    var userJokes: [Joke] {
+        guard let currentUser = userService.currentUser else { return [] }
+        return jokeService.jokes
+            .filter { joke in
+                joke.authorId == currentUser.id &&
+                (joke.status == "pending" || joke.status == "approved")
+            }
+            .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+    }
+    
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                if jokeService.isLoading {
+                    ProgressView()
+                } else if userJokes.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 50))
+                            .foregroundColor(.gray)
+                        Text("У вас пока нет шуток")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                        Text("Нажмите + чтобы добавить первую")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(userJokes) { joke in
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack {
+                                        Text(dateFormatter.string(from: joke.createdAt ?? Date()))
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                        Spacer()
+                                        JokeStatusView(status: joke.status)
+                                    }
+                                    
+                                    JokeCard(joke: joke)
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                        .padding(.vertical)
+                        Color.clear
+                            .frame(height: 100)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .appBackground()
+            .navigationTitle("Мои шутки")
+            .sheet(isPresented: $showAddJokeSheet) {
+                AddJokeSheet()
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: { showAddJokeSheet = true }) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(.blue)
+                    .frame(width: 44, height: 44) // Минимальная область нажатия для iOS
+                    .contentShape(Rectangle()) // Делаем всю область кликабельной
+                    .padding(.top, 52)
+            }
+            .padding(.trailing, 24)
+        }
     }
 }
 

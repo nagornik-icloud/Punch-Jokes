@@ -1,10 +1,3 @@
-//
-//  AccountView.swift
-//  Punch Jokes
-//
-//  Created by Anton Nagornyi on 29.12.24..
-//
-
 import SwiftUI
 import PhotosUI
 
@@ -12,182 +5,389 @@ struct AccountView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
     
-    @State private var selectedItem: PhotosPickerItem?
-    @State private var showLogoutAlert = false
+    var body: some View {
+        if let user = userService.currentUser {
+            UserProfileView(user: user)
+        } else {
+            AccountLoginView()
+        }
+    }
+}
+
+struct AccountLoginView: View {
+    
+    @EnvironmentObject var appService: AppService
+    @EnvironmentObject var userService: UserService
+    
+    @State private var email = ""
+    @State private var password = ""
+    @State private var showRegister = false
+    @State private var isLoading = false
     @State private var showError = false
     @State private var errorMessage = ""
-    @State private var isEditingUsername = false
-    @State private var newUsername = ""
-    @State private var isUploadingImage = false
     
-    private var userJokesCount: Int {
-        guard let userId = userService.currentUser?.id else { return 0 }
-        return jokeService.jokes.filter { $0.authorId == userId }.count
-    }
+    @FocusState private var focusedField: Field?
     
-    private var favoriteJokesCount: Int {
-        userService.currentUser?.favouriteJokesIDs?.count ?? 0
+    private enum Field {
+        case email, password
     }
     
     var body: some View {
         NavigationView {
-            Group {
-                if let user = userService.currentUser {
-                    accountContent(for: user)
-                } else {
-                    ContentUnavailableView("Войдите в аккаунт",
-                        systemImage: "person.crop.circle",
-                        description: Text("Чтобы увидеть свой профиль")
+            VStack(spacing: 25) {
+                // Header
+                VStack(spacing: 10) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 70))
+                        .foregroundColor(.blue)
+                    
+                    Text("Добро пожаловать")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Войдите в аккаунт чтобы продолжить")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+                .padding(.top, 50)
+                
+                // Login Form
+                VStack(spacing: 15) {
+                    CustomTextField(
+                        icon: "envelope.fill",
+                        placeholder: "Email",
+                        text: $email,
+                        isEditing: true,
+                        onFocusChange: { isFocused in
+                            if isFocused {
+                                focusedField = .email
+                            }
+                        }
+                    )
+                    
+                    CustomTextField(
+                        icon: "lock.fill",
+                        placeholder: "Пароль",
+                        text: $password,
+                        isEditing: true,
+                        onFocusChange: { isFocused in
+                            if isFocused {
+                                focusedField = .password
+                            }
+                        }
                     )
                 }
+                .padding(.horizontal)
+                
+                // Login Button
+                ZStack {
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Войти")
+                            .fontWeight(.semibold)
+                            .frame(width: .infinity, height: .infinity)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+                .shadow(color: Color.blue.opacity(0.3), radius: 5, y: 3)
+                .padding(.horizontal)
+                .disabled(email.isEmpty || password.isEmpty || isLoading)
+                .onTapGesture {
+                    login()
+                }
+                
+                // Register Button
+                Button(action: { showRegister = true }) {
+                    Text("Нет аккаунта? Зарегистрируйтесь")
+                        .foregroundColor(.blue)
+                }
+                
+                Spacer()
             }
+            .appBackground()
             .navigationTitle("Профиль")
+            .onTapGesture {
+                focusedField = nil
+                appService.showTabBar = true
+            }
             .alert("Ошибка", isPresented: $showError) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage)
             }
-            .alert("Выйти", isPresented: $showLogoutAlert) {
-                Button("Отмена", role: .cancel) {}
-                Button("Выйти", role: .destructive) {
-                    logout()
-                }
-            } message: {
-                Text("Вы уверены, что хотите выйти?")
-            }
-            .onChange(of: selectedItem) { _ in
-                updateProfileImage()
+            .sheet(isPresented: $showRegister) {
+                RegisterView()
             }
         }
     }
     
-    @ViewBuilder
-    private func accountContent(for user: User) -> some View {
-        Form {
-            profileImageSection(for: user)
-            userInfoSection(for: user)
-            statisticsSection
-            logoutSection
-        }
-        .overlay {
-            if userService.isLoading || isUploadingImage {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func profileImageSection(for user: User) -> some View {
-        Section {
-            HStack {
-                Spacer()
-                ZStack {
-                    profileImage(for: user)
-                    if isUploadingImage {
-                        ProgressView()
-                            .frame(width: 100, height: 100)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                }
-                Spacer()
-            }
-            .padding(.vertical)
-            
-            PhotosPicker(selection: $selectedItem, matching: .images) {
-                Label("Изменить фото", systemImage: "photo")
-            }
-            .disabled(isUploadingImage)
-        }
-    }
-    
-    @ViewBuilder
-    private func profileImage(for user: User) -> some View {
-        if let image = jokeService.authorImages[user.id] {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 100, height: 100)
-                .clipShape(Circle())
-        } else {
-            Circle()
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: 100, height: 100)
-                .overlay(
-                    Text(String(user.username?.prefix(1).uppercased() ?? ""))
-                        .font(.title)
-                        .foregroundColor(.gray)
-                )
-        }
-    }
-    
-    @ViewBuilder
-    private func userInfoSection(for user: User) -> some View {
-        Section("Информация") {
-            if isEditingUsername {
-                TextField("Имя пользователя", text: $newUsername)
-                    .onSubmit(updateUsername)
-            } else {
-                HStack {
-                    Text("Имя")
-                    Spacer()
-                    Text(user.username ?? "Не указано")
-                        .foregroundColor(.gray)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    newUsername = user.username ?? ""
-                    isEditingUsername = true
-                }
-            }
-            
-            HStack {
-                Text("Email")
-                Spacer()
-                Text(user.email)
-                    .foregroundColor(.gray)
-            }
-        }
-    }
-    
-    private var statisticsSection: some View {
-        Section("Статистика") {
-            HStack {
-                Text("Мои шутки")
-                Spacer()
-                Text("\(userJokesCount)")
-                    .foregroundColor(.gray)
-            }
-            
-            HStack {
-                Text("В избранном")
-                Spacer()
-                Text("\(favoriteJokesCount)")
-                    .foregroundColor(.gray)
-            }
-        }
-    }
-    
-    private var logoutSection: some View {
-        Section {
-            Button(role: .destructive) {
-                showLogoutAlert = true
-            } label: {
-                Text("Выйти")
-            }
-        }
-    }
-    
-    private func updateUsername() {
-        guard !newUsername.isEmpty else { return }
-        
+    private func login() {
+        isLoading = true
         Task {
             do {
-                userService.currentUser?.username = newUsername
+                try await userService.login(email: email, password: password)
+                isLoading = false
+            } catch {
+                isLoading = false
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+        }
+    }
+}
+
+struct UserProfileView: View {
+    let user: User
+    
+    @EnvironmentObject var userService: UserService
+    @EnvironmentObject var jokeService: JokeService
+    @EnvironmentObject var appService: AppService
+    
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var showLogoutAlert = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isEditing = false
+    @State private var userName = ""
+    @State private var userNickname = ""
+    @State private var userEmail = ""
+    @State private var isUploadingImage = false
+    @State private var imageScale: CGFloat = 1.0
+    
+    @FocusState private var focusedField: Field?
+    
+    private enum Field {
+        case name, nickname, email
+    }
+    
+    @Environment(\.colorScheme) var colorScheme
+    
+    private var userJokesCount: Int {
+        jokeService.jokes.filter { $0.authorId == user.id }.count
+    }
+    
+    private var favoriteJokesCount: Int {
+        user.favouriteJokesIDs?.count ?? 0
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 25) {
+                // Profile Image Section
+                profileImageSection
+                
+                // Statistics Section
+                statsSection
+                
+                // User Info Section
+                VStack(spacing: 20) {
+                    CustomTextField(
+                        icon: "person.fill",
+                        placeholder: "Имя",
+                        text: $userName,
+                        isEditing: isEditing,
+                        onFocusChange: { isFocused in
+                            if isFocused {
+                                focusedField = .name
+                            }
+                        }
+                    )
+                    
+                    CustomTextField(
+                        icon: "at",
+                        placeholder: "Никнейм",
+                        text: $userNickname,
+                        isEditing: isEditing,
+                        onFocusChange: { isFocused in
+                            if isFocused {
+                                focusedField = .nickname
+                            }
+                        }
+                    )
+                    
+                    CustomTextField(
+                        icon: "envelope.fill",
+                        placeholder: "Email",
+                        text: $userEmail,
+                        isEditing: isEditing,
+                        onFocusChange: { isFocused in
+                            if isFocused {
+                                focusedField = .email
+                            }
+                        }
+                    )
+                }
+                .padding(.horizontal)
+                
+                // Action Buttons
+                VStack(spacing: 15) {
+                    Button(action: {
+                        withAnimation {
+                            if isEditing {
+                                saveChanges()
+                            }
+                            isEditing.toggle()
+                            focusedField = nil
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: isEditing ? "checkmark.circle.fill" : "pencil.circle.fill")
+                            Text(isEditing ? "Сохранить" : "Редактировать")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isEditing ? Color.green : Color.blue)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                        .shadow(color: (isEditing ? Color.green : Color.blue).opacity(0.3), radius: 5, y: 3)
+                    }
+                    
+                    Button(action: { showLogoutAlert = true }) {
+                        HStack {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                            Text("Выйти")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                        .shadow(color: Color.red.opacity(0.3), radius: 5, y: 3)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.top, 30)
+        }
+        .onTapGesture {
+            focusedField = nil
+            appService.showTabBar = true
+        }
+        .navigationTitle("Профиль")
+        .alert("Ошибка", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+        .alert("Выйти", isPresented: $showLogoutAlert) {
+            Button("Отмена", role: .cancel) {}
+            Button("Выйти", role: .destructive) {
+                logout()
+            }
+        } message: {
+            Text("Вы уверены, что хотите выйти?")
+        }
+        .onChange(of: selectedItem) { _ in
+            updateProfileImage()
+        }
+        .onAppear(perform: loadUserData)
+    }
+    
+    private var profileImageSection: some View {
+        ZStack {
+            Circle()
+                .fill(.ultraThinMaterial)
+                .frame(width: 140, height: 140)
+                .shadow(color: .purple.opacity(0.3), radius: 10, x: 0, y: 5)
+            
+            if let image = jokeService.authorImages[user.id] {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 120, height: 120)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 2))
+                    .scaleEffect(imageScale)
+            } else {
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 120, height: 120)
+                    .foregroundColor(.gray)
+                    .scaleEffect(imageScale)
+            }
+            
+            if isUploadingImage {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 140, height: 140)
+                
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.blue)
+            } else if isEditing {
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 140, height: 140)
+                        .overlay(
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                        )
+                        .opacity(0.7)
+                }
+                .disabled(isUploadingImage)
+            }
+        }
+        .onTapGesture {
+            if isEditing {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    imageScale = 1.1
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        imageScale = 1.0
+                    }
+                }
+            }
+        }
+    }
+    
+    private var statsSection: some View {
+        HStack(spacing: 40) {
+            VStack {
+                Text("\(userJokesCount)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Text("Шутки")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .glassBackground()
+            
+            VStack {
+                Text("\(favoriteJokesCount)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Text("Избранное")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .glassBackground()
+        }
+    }
+    
+    private func loadUserData() {
+        userName = user.name ?? ""
+        userEmail = user.email
+        userNickname = user.username ?? ""
+    }
+    
+    private func saveChanges() {
+        Task {
+            do {
+                userService.currentUser?.name = userName
+                userService.currentUser?.username = userNickname
+                userService.currentUser?.email = userEmail
                 try await userService.saveUserToFirestore()
-                isEditingUsername = false
+                isEditing = false
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -202,7 +402,6 @@ struct AccountView: View {
             isUploadingImage = true
             defer {
                 isUploadingImage = false
-                // Сбрасываем выбранное изображение на главном потоке
                 DispatchQueue.main.async {
                     self.selectedItem = nil
                 }
@@ -215,7 +414,8 @@ struct AccountView: View {
                 }
                 
                 let resizedImage = image.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? image
-                try? await jokeService.uploadAuthorImage(resizedImage, userId: userService.currentUser?.id ?? "")
+                try await jokeService.uploadAuthorImage(resizedImage, userId: user.id)
+                try await jokeService.reloadAuthorImage(for: user.id)
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -230,5 +430,36 @@ struct AccountView: View {
             errorMessage = error.localizedDescription
             showError = true
         }
+    }
+}
+
+struct CustomTextField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    var isEditing: Bool
+    @FocusState private var isFocused: Bool
+    var onFocusChange: ((Bool) -> Void)?
+    
+    var body: some View {
+        HStack(spacing: 15) {
+            Image(systemName: icon)
+                .foregroundColor(.gray)
+                .frame(width: 20)
+            
+            TextField(placeholder, text: $text)
+                .disabled(!isEditing)
+                .focused($isFocused)
+                .onChange(of: isFocused) { newValue in
+                    onFocusChange?(newValue)
+                }
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+        )
     }
 }

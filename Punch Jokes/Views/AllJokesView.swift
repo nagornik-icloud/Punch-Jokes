@@ -18,27 +18,36 @@ struct AllJokesView: View {
     @State var showError = false
     @State var errorMessage = ""
     
+    var sortedJokes: [Joke] {
+        jokeService.jokes
+            .filter { $0.status == "approved" }
+            .sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+    }
+    
     var body: some View {
         NavigationView {
             Group {
                 if jokeService.jokes.isEmpty && jokeService.isLoading {
                     ProgressView()
                         .padding()
-                } else if jokeService.jokes.isEmpty {
-                    ContentUnavailableView("Нет шуток", 
+                } else if sortedJokes.isEmpty {
+                    ContentUnavailableView("Нет шуток",
                         systemImage: "text.bubble",
-                        description: Text("Добавьте первую шутку!")
+                        description: Text("Пока нет одобренных шуток")
                     )
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            ForEach(jokeService.jokes) { joke in
+                            ForEach(sortedJokes) { joke in
                                 JokeCard(joke: joke)
                                     .padding(.horizontal)
                             }
                         }
                         .padding(.vertical)
+                        Color.clear
+                            .frame(height: 100)
                     }
+                    .appBackground()
                 }
             }
             .scrollContentBackground(.hidden)
@@ -46,7 +55,7 @@ struct AllJokesView: View {
             .navigationTitle("Все шутки")
             .refreshable {
                 Task {
-//                    await refreshJokes()
+                    await refreshJokes()
                 }
             }
             .onAppear {
@@ -63,7 +72,8 @@ struct AllJokesView: View {
     func refreshJokes() async {
         do {
             print("Refreshing jokes...")
-//            try await jokeService.fetchJokes()
+            await jokeService.loadInitialData()
+            await userService.loadInitialData()
             print("Jokes refreshed, count: \(jokeService.jokes.count)")
         } catch {
             errorMessage = error.localizedDescription

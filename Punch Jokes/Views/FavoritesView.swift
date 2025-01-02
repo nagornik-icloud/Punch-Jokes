@@ -11,40 +11,58 @@ struct FavoritesView: View {
     
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
+    @StateObject private var localFavorites = LocalFavoritesService()
+    
+    var favoriteJokes: [Joke] {
+        let jokes: [Joke]
+        if let currentUser = userService.currentUser,
+           let favoriteIds = currentUser.favouriteJokesIDs {
+            jokes = jokeService.jokes.filter { favoriteIds.contains($0.id) }
+        } else {
+            jokes = jokeService.jokes.filter { localFavorites.contains($0.id) }
+        }
+        return jokes.sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+    }
     
     var body: some View {
         NavigationView {
-            Group {
-                if let currentUser = userService.currentUser,
-                   let favoriteIds = currentUser.favouriteJokesIDs {
-                    if favoriteIds.isEmpty {
-                        ContentUnavailableView("Нет избранных", 
-                            systemImage: "heart",
-                            description: Text("Добавьте шутки в избранное!")
-                        )
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 16) {
-                                ForEach(jokeService.jokes.filter { favoriteIds.contains($0.id) }) { joke in
-                                    JokeCard(joke: joke)
-                                }
-                            }
-                            .padding()
+            ScrollView {
+                if favoriteJokes.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "heart.slash")
+                            .font(.system(size: 50))
+                            .foregroundColor(.gray)
+                            .padding(.top, 100)
+                        
+                        Text("Нет избранных шуток")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                        
+                        if userService.currentUser == nil {
+                            Text("Войдите в аккаунт, чтобы синхронизировать избранное")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
                         }
                     }
                 } else {
-                    ContentUnavailableView("Войдите в аккаунт", 
-                        systemImage: "person.crop.circle",
-                        description: Text("Чтобы видеть избранные шутки")
-                    )
+                    LazyVStack(spacing: 16) {
+                        ForEach(favoriteJokes) { joke in
+                            JokeCard(joke: joke)
+                        }
+                    }
+                    .padding()
                 }
+                Color.clear
+                    .frame(height: 100)
             }
+            .appBackground()
             .navigationTitle("Избранное")
             .refreshable {
                 Task {
-//                    try? await userService.downloadUserFromFirestore()
-//                    await userService.fetchAndUpdateUsers()
-//                    await jokeService.fetchJokes()
+                    await jokeService.loadInitialData()
+                    await userService.loadInitialData()
                 }
             }
         }

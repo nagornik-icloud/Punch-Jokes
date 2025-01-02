@@ -12,6 +12,7 @@ struct JokeCard: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var localFavorites = LocalFavoritesService()
     
     let joke: Joke
     var showAuthor: Bool = true
@@ -57,6 +58,14 @@ struct JokeCard: View {
         return formatter
     }()
     
+    private var isFavorite: Bool {
+        if let currentUser = userService.currentUser {
+            return currentUser.favouriteJokesIDs?.contains(joke.id) ?? false
+        } else {
+            return localFavorites.contains(joke.id)
+        }
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showAuthor {
@@ -74,25 +83,20 @@ struct JokeCard: View {
                     
                     Spacer()
                     
-                    if let currentUser = userService.currentUser {
-                        let isFavorite = currentUser.favouriteJokesIDs?.contains(joke.id) ?? false
-                        Button {
-                            if !isSavingFavorite {
-                                toggleFavorite()
-                            }
-                        } label: {
-                            Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                .foregroundColor(isFavorite ? .red : .gray)
-                                .opacity(isSavingFavorite ? 0.5 : 1.0)
+                    Button {
+                        if !isSavingFavorite {
+                            toggleFavorite()
                         }
-                        .disabled(isSavingFavorite)
+                    } label: {
+                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                            .foregroundColor(isFavorite ? .red : .gray)
+                            .opacity(isSavingFavorite ? 0.5 : 1.0)
                     }
+                    .disabled(isSavingFavorite)
                 }
             }
             
             VStack(alignment: .leading, spacing: 8) {
-//                Text("\(jokeService.authorImages[joke.authorId])")
-//                Text("\(joke.authorId)")
                 Text(joke.setup)
                     .font(.body)
                     .foregroundColor(colorScheme == .dark ? .white : .black)
@@ -131,20 +135,27 @@ struct JokeCard: View {
     }
     
     private func toggleFavorite() {
-        guard var favorites = userService.currentUser?.favouriteJokesIDs else {
-            userService.currentUser?.favouriteJokesIDs = [joke.id]
+        print("🎯 Toggling favorite for joke: \(joke.id)")
+        if let currentUser = userService.currentUser {
+            print("🎯 User is logged in, using server storage")
+            // Для авторизованного пользователя
+            var favorites = currentUser.favouriteJokesIDs ?? []
+            if favorites.contains(joke.id) {
+                favorites.removeAll { $0 == joke.id }
+            } else {
+                favorites.append(joke.id)
+            }
+            currentUser.favouriteJokesIDs = favorites
             saveFavorites()
-            return
-        }
-        
-        if favorites.contains(joke.id) {
-            favorites.removeAll { $0 == joke.id }
         } else {
-            favorites.append(joke.id)
+            print("🎯 User is not logged in, using local storage")
+            // Для неавторизованного пользователя
+            if localFavorites.contains(joke.id) {
+                localFavorites.removeFavoriteJoke(joke.id)
+            } else {
+                localFavorites.addFavoriteJoke(joke.id)
+            }
         }
-        
-        userService.currentUser?.favouriteJokesIDs = favorites
-        saveFavorites()
     }
     
     private func saveFavorites() {
@@ -158,8 +169,8 @@ struct JokeCard: View {
                 } catch {
                     print("Error saving favorites: \(error)")
                 }
-                isSavingFavorite = false
             }
+            isSavingFavorite = false
         }
     }
 }

@@ -41,15 +41,15 @@ class JokeService: ObservableObject {
         
         // Загружаем свежие данные с сервера
         Task {
+            isLoading = true
             await loadInitialData()
         }
         print("🟣 JokeService: Initialization complete")
     }
     
-    private func loadInitialData() async {
+    func loadInitialData() async {
         print("🟣 JokeService: Starting initial data load")
         do {
-            isLoading = true
             defer { 
                 isLoading = false
                 print("🟣 JokeService: Initial data load completed")
@@ -100,7 +100,7 @@ class JokeService: ObservableObject {
         }
     }
     
-    private func loadAuthorImage(for authorId: String) async throws -> UIImage {
+    private func loadAuthorImage(for authorId: String) async throws -> UIImage? {
         // Сначала пробуем загрузить из локального хранилища
         if let savedImage = LocalStorage.loadImage(forUserId: authorId) {
             print("🟣 JokeService: Loaded image for \(authorId) from local storage")
@@ -117,7 +117,19 @@ class JokeService: ObservableObject {
             return image
         }
         print("🟣 JokeService: Failed to create UIImage from data for \(authorId)")
-        throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to load image"])
+        return nil
+    }
+    
+    func addJoke(_ setup: String, _ punchline: String, author: String) async throws {
+        let joke = Joke(
+            id: UUID().uuidString,
+            setup: setup,
+            punchline: punchline,
+            status: "pending",
+            authorId: author,
+            createdAt: Date()
+        )
+        try await addJoke(joke)
     }
     
     func addJoke(_ joke: Joke) async throws {
@@ -167,7 +179,24 @@ class JokeService: ObservableObject {
         metadata.contentType = "image/jpeg"
         
         _ = try await storageRef.putDataAsync(imageData, metadata: metadata)
-        authorImages[userId] = image
+        
+        await MainActor.run {
+            self.authorImages[userId] = image
+            // Сохраняем в локальное хранилище
+            LocalStorage.saveImage(image, forUserId: userId)
+        }
+    }
+    
+    func reloadAuthorImage(for userId: String) async throws {
+        print("🟣 JokeService: Reloading image for author: \(userId)")
+        let image = try await loadAuthorImage(for: userId)
+        await MainActor.run {
+            self.authorImages[userId] = image
+            if let image = image {
+                LocalStorage.saveImage(image, forUserId: userId)
+            }
+        }
+        print("🟣 JokeService: Successfully reloaded image for author: \(userId)")
     }
     
     // MARK: - Helper Methods

@@ -10,6 +10,12 @@ import FirebaseStorage
 import UIKit
 import Combine
 
+extension UIApplication {
+    func endEditing() {
+        sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
 struct TabBarView: View {
     
     @EnvironmentObject var jokeService: JokeService
@@ -43,23 +49,32 @@ struct TabBarView: View {
                 LoadingView()
             } else {
                 mainContent
+                    .simultaneousGesture(
+                        TapGesture()
+                            .onEnded { _ in
+                                if isKeyboardVisible {
+                                    UIApplication.shared.endEditing()
+                                }
+                            }
+                    )
             }
         }
         .onAppear {
             Task {
                 print("TabBarView appeared, fetching jokes...")
+                setupKeyboardObservers()
 //                await jokeService.fetchJokes()
             }
         }
         .onDisappear {
-//            NotificationCenter.default.removeObserver(self)
+            NotificationCenter.default.removeObserver(self)
         }
         
     }
     
     private var mainContent: some View {
         ZStack(alignment: .bottom) {
-            // Content
+            // Основной контент
             ZStack {
                 switch selectedTab {
                 case .home:
@@ -75,20 +90,13 @@ struct TabBarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // Custom TabBar
-            if !isKeyboardVisible {
+            if appService.showTabBar && !isKeyboardVisible {
                 customTabBar
                     .transition(.move(edge: .bottom))
                     .animation(.spring(), value: isKeyboardVisible)
+                    .animation(.spring(), value: appService.showTabBar)
             }
         }
-//        .overlay(
-//            FavoriteSyncView()
-//        )
-//        .onTapGesture {
-//            if isKeyboardVisible {
-//                UIApplication.shared.endEditing()
-//            }
-//        }
     }
     
     private var customTabBar: some View {
@@ -112,7 +120,6 @@ struct TabBarView: View {
             }
         }
         .padding(.vertical, 12)
-        .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.black.opacity(0.7))
@@ -126,7 +133,7 @@ struct TabBarView: View {
                 )
                 .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 2, y: 6)
         )
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 8)
         .padding(.bottom, 8)
     }
     
@@ -138,6 +145,7 @@ struct TabBarView: View {
         ) { notification in
             withAnimation {
                 self.isKeyboardVisible = true
+                self.appService.showTabBar = false
             }
         }
         
@@ -148,6 +156,7 @@ struct TabBarView: View {
         ) { notification in
             withAnimation {
                 self.isKeyboardVisible = false
+                self.appService.showTabBar = true
             }
         }
     }
