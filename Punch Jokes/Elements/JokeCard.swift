@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import FirebaseFirestore
 
 struct JokeCard: View {
     @EnvironmentObject var userService: UserService
@@ -21,6 +20,10 @@ struct JokeCard: View {
     @State private var isExpanded = false
     @State private var isSavingFavorite = false
     @State var img = UIImage()
+    
+    @State private var isShowingPunchline = false
+    @State private var offset: CGFloat = 0
+    @State private var degrees: Double = 0
     
     private var authorUsername: String {
         if userService.isLoading {
@@ -46,7 +49,7 @@ struct JokeCard: View {
                     .foregroundColor(.gray)
             }
         }
-        .frame(width: 40, height: 40)
+        .frame(width: 30, height: 30)
         .clipShape(Circle())
         .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
     }
@@ -67,70 +70,118 @@ struct JokeCard: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if showAuthor {
-                HStack {
-                    authorImage
-                    VStack(alignment: .leading) {
-                        Text(authorUsername)
-                            .font(.headline)
-                            .redacted(reason: userService.isLoading ? .placeholder : [])
-                        
-                        Text(dateFormatter.string(from: joke.createdAt ?? Date()))
-                            .font(.caption)
-                            .foregroundColor(.gray)
+        ZStack {
+            // Основная карточка
+            mainCard
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 2)
+                )
+                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isShowingPunchline)
+    }
+    
+    private var mainCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            
+            // Основной текст шутки
+            HStack {
+                Text(isShowingPunchline ? joke.punchline : joke.setup)
+                    .font(isShowingPunchline ? .headline : .body)
+                    .foregroundColor(isShowingPunchline ? .purple : .primary)
+                    .fontWeight(.medium)
+                    .lineSpacing(4)
+                    .padding(.bottom, 4)
+                
+                Spacer()
+                
+                Button {
+                    if !isSavingFavorite {
+                        toggleFavorite()
                     }
-                    
-                    Spacer()
-                    
-                    Button {
-                        if !isSavingFavorite {
-                            toggleFavorite()
-                        }
-                    } label: {
-                        Image(systemName: isFavorite ? "heart.fill" : "heart")
-                            .foregroundColor(isFavorite ? .red : .gray)
-                            .opacity(isSavingFavorite ? 0.5 : 1.0)
-                    }
-                    .disabled(isSavingFavorite)
+                } label: {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .foregroundColor(isFavorite ? .red : .gray)
+                        .opacity(isSavingFavorite ? 0.5 : 1.0)
                 }
+                .disabled(isSavingFavorite)
+                
             }
             
-            VStack(alignment: .leading, spacing: 8) {
-                Text(joke.setup)
-                    .font(.body)
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .multilineTextAlignment(.leading)
+            HStack(alignment: .center) {
                 
-                if showPunchline {
-                    if isExpanded {
-                        Text(joke.punchline)
-                            .font(.body)
-                            .foregroundColor(.purple)
-                            .multilineTextAlignment(.leading)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                authorImage
+                
+                // Метаданные (автор и дата)
+                VStack(alignment: .leading, spacing: 4) {
+                    let author = authorUsername
+                    Text(author)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    if let date = joke.createdAt {
+                        Text(date.formatted(.relative(presentation: .named)))
+                            .font(.caption2)
+                            .foregroundColor(.gray.opacity(0.8))
                     }
+                }
+                
+                Spacer()
+                
+                // Кнопка поделиться
+                Button(action: shareJoke) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16))
+                        .foregroundColor(.gray)
                 }
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color(UIColor.systemGray6) : .white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .background(content: {
+            Color.gray.opacity(0.0001)
+        })
         .onTapGesture {
-            if showPunchline {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    isExpanded.toggle()
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                }
+            hapticFeedback()
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                isShowingPunchline.toggle()
             }
+        }
+        
+    }
+    
+    private var punchlineCard: some View {
+        VStack(alignment: .leading) {
+            Text(joke.punchline)
+                .font(.body)
+                .fontWeight(.medium)
+                .lineSpacing(4)
+                .padding()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+        )
+    }
+    
+    private func hapticFeedback() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+    }
+    
+    private func shareJoke() {
+        let textToShare = "\(joke.setup)\n\n\(joke.punchline)"
+        let activityVC = UIActivityViewController(
+            activityItems: [textToShare],
+            applicationActivities: nil
+        )
+        
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            rootVC.present(activityVC, animated: true)
         }
     }
     
@@ -185,15 +236,10 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-//#Preview {
-//    let userService = UserService()
-//    let jokeService = JokeService()
-//    let joke = Joke(id: "test", authorId: "test", setup: "Why did the chicken cross the road?", punchline: "To get to the other side!", createdAt: Date())
-//
-//    // Добавляем тестовые данные в кэш
-//    userService.userNameCache["test"] = "Test User"
-//
-//    return JokeCard(joke: joke)
-//        .environmentObject(userService)
-//        .environmentObject(jokeService)
-//}
+#Preview {
+    TabBarView()
+        .environmentObject(AppService())
+        .environmentObject(JokeService())
+        .environmentObject(UserService())
+        .preferredColorScheme(.dark)
+}

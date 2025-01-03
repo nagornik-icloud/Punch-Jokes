@@ -122,19 +122,11 @@ struct TabBarView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.black.opacity(0.7))
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.ultraThinMaterial)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                )
-                .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 2, y: 6)
+                .fill(.ultraThickMaterial.opacity(0.95))
+                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
         )
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 2, y: 6)
+        .padding(8)
     }
     
     private func setupKeyboardObservers() {
