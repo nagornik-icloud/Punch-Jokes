@@ -56,6 +56,7 @@ struct JokeCard: View {
                 .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isShowingPunchline)
+
     }
     
     private var authorImage: some View {
@@ -81,12 +82,33 @@ struct JokeCard: View {
     }
     
     var textJoke: some View {
-        Text(isShowingPunchline ? joke.punchline : joke.setup)
-            .font(isShowingPunchline ? .headline : .body)
-            .foregroundColor(isShowingPunchline ? .purple : .primary)
-            .fontWeight(.medium)
-            .lineSpacing(4)
-            .padding(.bottom, 4)
+//        Text(isShowingPunchline ? joke.punchline : joke.setup)
+//            .font(isShowingPunchline ? .headline : .body)
+//            .foregroundColor(isShowingPunchline ? .purple : .primary)
+//            .fontWeight(.medium)
+//            .lineSpacing(4)
+//            .padding(.bottom, 4)
+        
+        VStack (alignment: .leading) {
+            
+            Text(joke.setup)
+                .font(.body)
+                .foregroundColor(.primary)
+                .fontWeight(.medium)
+                .lineSpacing(4)
+                .padding(.bottom, 4)
+            
+            if isShowingPunchline {
+                Text(joke.punchline)
+                    .font(.headline)
+                    .foregroundColor(.purple)
+                    .fontWeight(.medium)
+                    .lineSpacing(4)
+                    .padding(.bottom, 4)
+            }
+            
+        }
+        
     }
     
     var heartIcon: some View {

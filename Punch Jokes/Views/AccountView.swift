@@ -129,6 +129,7 @@ struct AccountLoginView: View {
     
     private func login() {
         isLoading = true
+        defer { isLoading = false }
         Task {
             do {
                 try await userService.login(email: email, password: password)

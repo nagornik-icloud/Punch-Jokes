@@ -22,7 +22,8 @@ struct TabBarView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
-    @State private var selectedTab: Tab = .home
+    let screens: [AppService.AppScreens] = [.allJokes, .favorites, .myJokes, .account]
+
     @State private var keyboardHeight: CGFloat = 0
     @State private var isKeyboardVisible = false
     
@@ -76,15 +77,19 @@ struct TabBarView: View {
         ZStack(alignment: .bottom) {
             // Основной контент
             ZStack {
-                switch selectedTab {
-                case .home:
+                switch appService.shownScreen {
+                case .allJokes:
                     AllJokesView()
                 case .favorites:
                     FavoritesView()
-                case .add:
+                case .myJokes:
                     SendJokeView()
-                case .profile:
+                case .account:
                     AccountView()
+                case .onboarding:
+                    EmptyView()
+                case .settings:
+                    EmptyView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -101,10 +106,10 @@ struct TabBarView: View {
     
     private var customTabBar: some View {
         HStack(spacing: 0) {
-            ForEach(Tab.allCases, id: \.self) { tab in
+            ForEach(screens, id: \.self) { tab in
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTab = tab
+                        appService.shownScreen = tab
                     }
                 }) {
                     VStack(spacing: 8) {
@@ -113,7 +118,7 @@ struct TabBarView: View {
                         Text(tab.title)
                             .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(selectedTab == tab ? .white : .gray)
+                    .foregroundColor(appService.shownScreen == tab ? .white : .gray)
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
                 }

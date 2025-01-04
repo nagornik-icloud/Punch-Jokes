@@ -114,6 +114,7 @@ class UserService: ObservableObject {
     
     private func fetchCurrentUser(userId: String) async {
         print("👤 UserService: Fetching current user with ID: \(userId)")
+        defer { isLoading = false }
         do {
             let document = try await db.collection("users").document(userId).getDocument()
             await MainActor.run {
@@ -258,7 +259,7 @@ class UserService: ObservableObject {
     
     func syncFavorites() async throws {
         guard let currentUser = currentUser else { return }
-        
+        defer { isLoading = false }
         // Получаем локальные избранные
         let localFavoritesService = await LocalFavoritesService()
         let localFavorites = await localFavoritesService.favorites

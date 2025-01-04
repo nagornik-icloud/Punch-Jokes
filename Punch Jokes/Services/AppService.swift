@@ -10,13 +10,31 @@ import SwiftUI
 
 class AppService: ObservableObject {
     
-    enum AppScreens {
+    enum AppScreens: String, CaseIterable {
         case onboarding
-        case allJokes
-        case favorites
-        case myJokes
+        case allJokes = "house"
+        case favorites = "heart"
+        case myJokes = "plus"
         case settings
-        case account
+        case account = "person"
+        
+        var title: String {
+            switch self {
+            case .allJokes:
+                return "Все шутки"
+            case .favorites:
+                return "Избранное"
+            case .myJokes:
+                return "Добавить"
+            case .account:
+                return "Профиль"
+            case .onboarding:
+                return ""
+            case .settings:
+                return ""
+            }
+        }
+        
     }
     
     @Published var shownScreen: AppScreens = .allJokes {

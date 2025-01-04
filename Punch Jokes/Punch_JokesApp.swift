@@ -25,7 +25,6 @@ struct YourApp: App {
         FirebaseApp.configure()
         LocalStorage.setupDirectories()
         
-        
     }
     
     var body: some Scene {
@@ -34,13 +33,7 @@ struct YourApp: App {
                 .environmentObject(appService)
                 .environmentObject(userService)
                 .environmentObject(jokeService)
-//                .task {
-//                    print("📱 App: Loading initial data...")
-//                    await userService.loadInitialData()
-//                    await jokeService.loadInitialData()
-//                    isLoading = false
-//                    print("📱 App: Initial load complete")
-//                }
+
             
         }
     }
@@ -56,4 +49,5 @@ let db = Firestore.firestore()
         .environmentObject(JokeService())
         .environmentObject(UserService())
         .preferredColorScheme(.dark)
+
 }

@@ -62,16 +62,16 @@ struct AddJokeSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding()
                 .background(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                     isLoading ? Color.blue.opacity(0.5) : Color.blue
                 )
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
                 .padding(.horizontal)
                 .disabled(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                     isLoading
                 )
             }
@@ -96,6 +96,7 @@ struct AddJokeSheet: View {
         Task {
             do {
                 try await jokeService.addJoke(setup, punchline, author: currentUser.id)
+                isLoading = false
                 dismiss()
             } catch {
                 alertMessage = "Ошибка: \(error.localizedDescription)"
@@ -153,7 +154,9 @@ struct SendJokeView: View {
                             .padding(.horizontal, 32)
                         
                         Button(action: {
-//                            appService.shownScreen = .profile
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                appService.shownScreen = .account
+                            }
                         }) {
                             Text("Войти или зарегистрироваться")
                                 .fontWeight(.semibold)
@@ -214,21 +217,21 @@ struct SendJokeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .appBackground()
             .navigationTitle("Мои шутки")
-            .overlay(alignment: .topTrailing) {
-                if userService.currentUser != nil {
-                    Button(action: { showAddJokeSheet = true }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.blue)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .padding(.top, 52)
-                    }
-                    .padding(.trailing, 24)
-                }
-            }
             .sheet(isPresented: $showAddJokeSheet) {
                 AddJokeSheet()
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if userService.currentUser != nil {
+                Button(action: { showAddJokeSheet = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.blue)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .padding(.top, 52)
+                }
+                .padding(.trailing, 24)
             }
         }
     }

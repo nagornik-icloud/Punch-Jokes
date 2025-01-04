@@ -50,7 +50,7 @@ class JokeService: ObservableObject {
     func loadInitialData() async {
         print("🟣 JokeService: Starting initial data load")
         do {
-            defer { 
+            defer {
                 isLoading = false
                 print("🟣 JokeService: Initial data load completed")
             }
@@ -135,8 +135,8 @@ class JokeService: ObservableObject {
     func addJoke(_ joke: Joke) async throws {
         print("🟣 JokeService: Adding new joke with ID: \(joke.id)")
         isLoading = true
-        defer { 
-            isLoading = false 
+        defer {
+            isLoading = false
             print("🟣 JokeService: Finished adding joke")
         }
         
@@ -147,7 +147,7 @@ class JokeService: ObservableObject {
     func deleteJoke(_ jokeId: String) async throws {
         print("🟣 JokeService: Deleting joke with ID: \(jokeId)")
         isLoading = true
-        defer { 
+        defer {
             isLoading = false
             print("🟣 JokeService: Finished deleting joke")
         }
@@ -159,7 +159,7 @@ class JokeService: ObservableObject {
     func updateJoke(_ joke: Joke) async throws {
         print("🟣 JokeService: Updating joke with ID: \(joke.id)")
         isLoading = true
-        defer { 
+        defer {
             isLoading = false
             print("🟣 JokeService: Finished updating joke")
         }
