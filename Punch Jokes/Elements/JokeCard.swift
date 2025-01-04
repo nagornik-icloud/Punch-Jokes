@@ -22,36 +22,12 @@ struct JokeCard: View {
     @State var img = UIImage()
     
     @State private var isShowingPunchline = false
-    @State private var offset: CGFloat = 0
-    @State private var degrees: Double = 0
     
     private var authorUsername: String {
         if userService.isLoading {
             return "Загрузка..."
         }
         return userService.userNameCache[joke.authorId] ?? "Пользователь"
-    }
-    
-    private var authorImage: some View {
-        Group {
-            if jokeService.isLoading {
-                ProgressView()
-                    .frame(width: 40, height: 40)
-            } else if let image = jokeService.authorImages[joke.authorId] {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .transition(.opacity)
-            } else {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundColor(.gray)
-            }
-        }
-        .frame(width: 30, height: 30)
-        .clipShape(Circle())
-        .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
     }
     
     private let dateFormatter: DateFormatter = {
@@ -82,64 +58,97 @@ struct JokeCard: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isShowingPunchline)
     }
     
-    private var mainCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            
-            // Основной текст шутки
-            HStack {
-                Text(isShowingPunchline ? joke.punchline : joke.setup)
-                    .font(isShowingPunchline ? .headline : .body)
-                    .foregroundColor(isShowingPunchline ? .purple : .primary)
-                    .fontWeight(.medium)
-                    .lineSpacing(4)
-                    .padding(.bottom, 4)
-                
-                Spacer()
-                
-                Button {
-                    if !isSavingFavorite {
-                        toggleFavorite()
-                    }
-                } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .foregroundColor(isFavorite ? .red : .gray)
-                        .opacity(isSavingFavorite ? 0.5 : 1.0)
-                }
-                .disabled(isSavingFavorite)
-                
-            }
-            
-            HStack(alignment: .center) {
-                
-                authorImage
-                
-                // Метаданные (автор и дата)
-                VStack(alignment: .leading, spacing: 4) {
-                    let author = authorUsername
-                    Text(author)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    
-                    if let date = joke.createdAt {
-                        Text(date.formatted(.relative(presentation: .named)))
-                            .font(.caption2)
-                            .foregroundColor(.gray.opacity(0.8))
-                    }
-                }
-                
-                Spacer()
-                
-                // Кнопка поделиться
-                Button(action: shareJoke) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16))
-                        .foregroundColor(.gray)
-                }
+    private var authorImage: some View {
+        Group {
+            if jokeService.isLoading {
+                ProgressView()
+                    .frame(width: 40, height: 40)
+            } else if let image = jokeService.authorImages[joke.authorId] {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundColor(.gray)
             }
         }
+        .frame(width: 30, height: 30)
+        .clipShape(Circle())
+        .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
+    }
+    
+    var textJoke: some View {
+        Text(isShowingPunchline ? joke.punchline : joke.setup)
+            .font(isShowingPunchline ? .headline : .body)
+            .foregroundColor(isShowingPunchline ? .purple : .primary)
+            .fontWeight(.medium)
+            .lineSpacing(4)
+            .padding(.bottom, 4)
+    }
+    
+    var heartIcon: some View {
+        Button {
+            if !isSavingFavorite {
+                toggleFavorite()
+            }
+        } label: {
+            Image(systemName: isFavorite ? "heart.fill" : "heart")
+                .foregroundColor(isFavorite ? .red : .gray)
+                .opacity(isSavingFavorite ? 0.5 : 1.0)
+        }
+        .disabled(isSavingFavorite)
+    }
+    
+    var authorAndDate: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            let author = authorUsername
+            Text(author)
+                .font(.caption)
+                .foregroundColor(.gray)
+            
+            if let date = joke.createdAt {
+                Text(date.formatted(.relative(presentation: .named)))
+                    .font(.caption2)
+                    .foregroundColor(.gray.opacity(0.8))
+            }
+        }
+    }
+    
+    var shareButton: some View {
+        Button(action: shareJoke) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16))
+                .foregroundColor(.gray)
+        }
+    }
+    
+    private var mainCard: some View {
+        
+        HStack {
+            VStack(alignment: .leading) {
+                textJoke
+                Spacer()
+                HStack {
+                    authorImage
+                    authorAndDate
+                }
+                
+            }
+            Spacer()
+            VStack {
+                heartIcon
+                Spacer()
+                shareButton
+            }
+            .padding(4)
+        }
+        
         .padding()
         .background(content: {
-            Color.gray.opacity(0.0001)
+            Color.gray.opacity(0.001)
         })
         .onTapGesture {
             hapticFeedback()
