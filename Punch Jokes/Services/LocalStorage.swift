@@ -31,6 +31,10 @@ enum LocalStorage {
         documentsDirectory.appendingPathComponent("jokes", isDirectory: true)
     }
     
+    static var punchlinesDirectory: URL {
+        documentsDirectory.appendingPathComponent("punchlines", isDirectory: true)
+    }
+    
     static var usersDirectory: URL {
         documentsDirectory.appendingPathComponent("users", isDirectory: true)
     }
@@ -45,7 +49,7 @@ enum LocalStorage {
     
     // MARK: - Directory Setup
     static func setupDirectories() {
-        let directories = [jokesDirectory, usersDirectory, imagesDirectory, metadataDirectory]
+        let directories = [jokesDirectory, usersDirectory, imagesDirectory, metadataDirectory, punchlinesDirectory]
         
         for directory in directories {
             if !FileManager.default.fileExists(atPath: directory.path) {
@@ -110,6 +114,37 @@ enum LocalStorage {
         }
     }
     
+    // MARK: - Punchlines Storage
+    static func savePunchlines(_ punchlines: [Punchline], forJoke jokeId: String) {
+        do {
+            let data = try JSONEncoder().encode(punchlines)
+            let punchlineFile = punchlinesDirectory.appendingPathComponent("\(jokeId).json")
+            try data.write(to: punchlineFile)
+            saveMetadata(CacheMetadata.create(count: punchlines.count), for: "punchlines_\(jokeId)")
+            print(" LocalStorage: Saved \(punchlines.count) punchlines for joke \(jokeId)")
+        } catch {
+            print(" LocalStorage: Failed to save punchlines for joke \(jokeId): \(error)")
+        }
+    }
+    
+    static func loadPunchlines(forJoke jokeId: String) -> [Punchline]? {
+        guard isCacheValid(type: "punchlines_\(jokeId)") else {
+            print(" LocalStorage: Punchlines cache for joke \(jokeId) is invalid or expired")
+            return nil
+        }
+        
+        do {
+            let punchlineFile = punchlinesDirectory.appendingPathComponent("\(jokeId).json")
+            let data = try Data(contentsOf: punchlineFile)
+            let punchlines = try JSONDecoder().decode([Punchline].self, from: data)
+            print(" LocalStorage: Loaded \(punchlines.count) punchlines for joke \(jokeId)")
+            return punchlines
+        } catch {
+            print(" LocalStorage: Failed to load punchlines for joke \(jokeId): \(error)")
+            return nil
+        }
+    }
+    
     // MARK: - Users Storage
     static func saveUsers(_ users: [User]) {
         do {
@@ -169,13 +204,14 @@ enum LocalStorage {
     
     // MARK: - Images Storage
     static func saveImage(_ image: UIImage, forUserId userId: String) {
-        guard let data = image.jpegData(compressionQuality: 0.7) else { return }
-        let fileURL = imagesDirectory.appendingPathComponent("\(userId).jpg")
-        
         do {
-            try data.write(to: fileURL)
-            saveMetadata(CacheMetadata.create(count: 1), for: "image_\(userId)")
-            print(" LocalStorage: Saved image for user \(userId)")
+            let imageFile = imagesDirectory.appendingPathComponent("\(userId).jpg")
+            // Сохраняем в формате JPEG с качеством 0.7 для уменьшения размера файла
+            if let data = image.jpegData(compressionQuality: 0.7) {
+                try data.write(to: imageFile)
+                saveMetadata(CacheMetadata.create(count: 1), for: "image_\(userId)")
+                print(" LocalStorage: Saved image for user \(userId)")
+            }
         } catch {
             print(" LocalStorage: Failed to save image for user \(userId): \(error)")
         }
@@ -187,9 +223,18 @@ enum LocalStorage {
             return nil
         }
         
-        let fileURL = imagesDirectory.appendingPathComponent("\(userId).jpg")
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return UIImage(data: data)
+        do {
+            let imageFile = imagesDirectory.appendingPathComponent("\(userId).jpg")
+            let data = try Data(contentsOf: imageFile)
+            if let image = UIImage(data: data) {
+                print(" LocalStorage: Loaded image for user \(userId)")
+                return image
+            }
+            return nil
+        } catch {
+            print(" LocalStorage: Failed to load image for user \(userId): \(error)")
+            return nil
+        }
     }
     
     // MARK: - User Cache Storage
@@ -212,7 +257,7 @@ enum LocalStorage {
     
     // MARK: - Cache Cleanup
     static func cleanupOldCache() {
-        let directories = [jokesDirectory, usersDirectory, imagesDirectory, metadataDirectory]
+        let directories = [jokesDirectory, usersDirectory, imagesDirectory, metadataDirectory, punchlinesDirectory]
         let fileManager = FileManager.default
         
         for directory in directories {

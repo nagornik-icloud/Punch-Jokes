@@ -42,9 +42,24 @@ struct AllJokesView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            ForEach(sortedJokes) { joke in
+                            ForEach(Array(sortedJokes.enumerated()), id: \.element.id) { index, joke in
                                 JokeCard(joke: joke)
                                     .padding(.horizontal)
+                                    .onAppear {
+                                        // Проверяем, нужно ли загрузить следующую страницу
+                                        if index == sortedJokes.count - 5 {
+                                            Task {
+                                                await jokeService.loadMoreJokes()
+                                            }
+                                        }
+                                        // Проверяем, нужно ли начать предзагрузку
+                                        jokeService.checkPreloadNeeded(currentIndex: index)
+                                    }
+                            }
+                            
+                            if jokeService.isLoadingMore {
+                                ProgressView()
+                                    .padding()
                             }
                         }
                         .padding(.vertical)

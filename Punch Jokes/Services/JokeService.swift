@@ -10,21 +10,32 @@ class JokeService: ObservableObject {
     private let storage = Storage.storage()
     private let pageSize = 20
     
-    @Published var jokes: [Joke] = []
+    @Published private(set) var jokes: [Joke] = []
     @Published var authorImages: [String: UIImage] = [:]
-    @Published var isLoading = true
-    @Published var isLoadingImages = false
-    @Published var error: Error?
-    @Published var hasMoreJokes = true
+    @Published private(set) var error: Error?
+    @Published private(set) var isLoading = false
+    @Published private(set) var isLoadingMore = false
+    @Published private(set) var isLoadingImages = false
+    @Published private(set) var hasMoreJokes = true
     
-    private var lastDocument: DocumentSnapshot?
-    private var isLoadingMore = false
+    private var lastDocument: QueryDocumentSnapshot?
+    private var preloadedJokes: [Joke] = []
+    private var isPreloading = false
     private var loadedImagesTimestamps: [String: Date] = [:]
+    
+    // Начинаем предзагрузку когда осталось 5 шуток до конца
+    private let preloadThreshold = 5
     
     init() {
         print("🟣 ==========================================")
         print("🟣 JokeService: Initializing...")
         loadCachedData()
+        
+        // Загружаем временные метки изображений
+        if let timestamps = UserDefaults.standard.dictionary(forKey: "AuthorImagesTimestamps") as? [String: Date] {
+            loadedImagesTimestamps = timestamps
+            print("🟣 JokeService: Loaded \(timestamps.count) image timestamps")
+        }
         
         // Загружаем свежие данные с сервера в фоне
         Task {
@@ -43,13 +54,7 @@ class JokeService: ObservableObject {
             print("🟣 JokeService: Loaded \(savedJokes.count) jokes from cache")
         }
         
-        // Загружаем сохраненные изображения и их временные метки
-        if let timestamps = UserDefaults.standard.dictionary(forKey: "AuthorImagesTimestamps") as? [String: Date] {
-            loadedImagesTimestamps = timestamps
-            print("🟣 JokeService: Loaded \(timestamps.count) image timestamps")
-        }
-        
-        // Загружаем все сохраненные изображения
+        // Загружаем сохраненные изображения
         let uniqueAuthors = Set(jokes.map { $0.authorId })
         for authorId in uniqueAuthors {
             if let savedImage = LocalStorage.loadImage(forUserId: authorId) {
@@ -71,6 +76,16 @@ class JokeService: ObservableObject {
         
         for authorId in uniqueAuthors {
             print("🟣 JokeService: Processing author: \(authorId)")
+            
+            // Проверяем, нужно ли обновлять изображение
+            let lastUpdate = loadedImagesTimestamps[authorId] ?? .distantPast
+            let shouldUpdate = Date().timeIntervalSince(lastUpdate) > 3600 // Обновляем раз в час
+            
+            if !shouldUpdate, let cachedImage = authorImages[authorId] {
+                print("🟣 JokeService: Using cached image for author: \(authorId)")
+                continue
+            }
+            
             if let image = try? await loadAuthorImage(for: authorId) {
                 await MainActor.run {
                     authorImages[authorId] = image
@@ -78,6 +93,9 @@ class JokeService: ObservableObject {
                 }
                 LocalStorage.saveImage(image, forUserId: authorId)
                 print("🟣 JokeService: Successfully saved image for author: \(authorId)")
+                
+                // Сохраняем временные метки
+                UserDefaults.standard.set(loadedImagesTimestamps, forKey: "AuthorImagesTimestamps")
             }
         }
         
@@ -104,12 +122,44 @@ class JokeService: ObservableObject {
                 return nil
             }
             
-            print("🟣 JokeService: Successfully loaded image for author: \(userId)")
-            return image
+            // Оптимизируем изображение перед сохранением
+            let optimizedImage = optimizeImage(image)
+            print("🟣 JokeService: Successfully loaded and optimized image for author: \(userId)")
+            return optimizedImage
         } catch {
             print("🟣 JokeService: Error loading image for author: \(userId) - \(error)")
             return nil
         }
+    }
+    
+    private func optimizeImage(_ image: UIImage, maxSize: CGFloat = 200) -> UIImage {
+        // Если изображение меньше максимального размера, возвращаем как есть
+        let originalSize = max(image.size.width, image.size.height)
+        if originalSize <= maxSize {
+            return image
+        }
+        
+        // Вычисляем новый размер, сохраняя пропорции
+        let ratio = maxSize / originalSize
+        let newSize = CGSize(
+            width: image.size.width * ratio,
+            height: image.size.height * ratio
+        )
+        
+        // Создаем новый контекст для отрисовки
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        // Отрисовываем изображение в новом размере
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        
+        // Получаем оптимизированное изображение
+        guard let optimizedImage = UIGraphicsGetImageFromCurrentImageContext() else {
+            return image
+        }
+        
+        print("🟣 JokeService: Optimized image from \(Int(originalSize))px to \(Int(maxSize))px")
+        return optimizedImage
     }
     
     // MARK: - Data Loading
@@ -138,6 +188,11 @@ class JokeService: ObservableObject {
                 LocalStorage.saveJokes(fetchedJokes)
                 print("🟣 JokeService: Updated jokes array with \(fetchedJokes.count) jokes")
                 
+                // Начинаем предзагрузку следующей страницы
+                Task {
+                    await preloadNextPage()
+                }
+                
                 // Загружаем изображения сразу после обновления шуток
                 print("🟣 JokeService: Starting image loading after jokes update")
                 isLoadingImages = true
@@ -153,11 +208,11 @@ class JokeService: ObservableObject {
         }
     }
     
-    func loadMoreJokes() async {
-        guard !isLoadingMore, hasMoreJokes, let lastDocument = lastDocument else { return }
+    private func preloadNextPage() async {
+        guard !isPreloading, hasMoreJokes, let lastDocument = lastDocument else { return }
         
-        isLoadingMore = true
-        print("🟣 JokeService: Loading more jokes")
+        isPreloading = true
+        print("🟣 JokeService: Preloading next page")
         
         do {
             let snapshot = try await db.collection("jokes")
@@ -170,17 +225,77 @@ class JokeService: ObservableObject {
             for document in snapshot.documents {
                 if let joke = try? await fetchJokeWithPunchlines(from: document) {
                     newJokes.append(joke)
-                    print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
+                    print("🟣 JokeService: Successfully preloaded joke: \(joke.id)")
                 }
             }
             
-            self.lastDocument = snapshot.documents.last
+            preloadedJokes = newJokes
+            print("🟣 JokeService: Preloaded \(newJokes.count) jokes")
+        } catch {
+            print("🟣 JokeService: Error preloading jokes: \(error)")
+        }
+        
+        isPreloading = false
+    }
+    
+    func loadMoreJokes() async {
+        guard !isLoadingMore, hasMoreJokes else { return }
+        
+        isLoadingMore = true
+        print("🟣 JokeService: Loading more jokes")
+        
+        // Если есть предзагруженные шутки, используем их
+        if !preloadedJokes.isEmpty {
+            print("🟣 JokeService: Using preloaded jokes")
+            jokes.append(contentsOf: preloadedJokes)
+            
+            // Обновляем lastDocument для следующей загрузки
+            if let lastJoke = preloadedJokes.last,
+               let snapshot = try? await db.collection("jokes")
+                .whereField("id", isEqualTo: lastJoke.id)
+                .getDocuments(),
+               let lastDoc = snapshot.documents.first {
+                lastDocument = lastDoc
+            }
+            
+            // Очищаем предзагруженные шутки и начинаем загрузку следующей страницы
+            preloadedJokes = []
+            Task {
+                await preloadNextPage()
+            }
+            
+            isLoadingMore = false
+            return
+        }
+        
+        // Если предзагруженных шуток нет, загружаем обычным способом
+        do {
+            let snapshot = try await db.collection("jokes")
+                .order(by: "createdAt", descending: true)
+                .limit(to: pageSize)
+                .start(afterDocument: lastDocument!)
+                .getDocuments()
+            
+            var newJokes: [Joke] = []
+            for document in snapshot.documents {
+                if let joke = try? await fetchJokeWithPunchlines(from: document) {
+                    newJokes.append(joke)
+                    print("🟣 JokeService: Successfully decoded joke: \(joke.id)")
+                }
+            }
+            
+            lastDocument = snapshot.documents.last
             hasMoreJokes = !snapshot.documents.isEmpty
             
             jokes.append(contentsOf: newJokes)
             LocalStorage.saveJokes(jokes)
             
             print("🟣 JokeService: Loaded \(newJokes.count) more jokes")
+            
+            // Начинаем предзагрузку следующей страницы
+            Task {
+                await preloadNextPage()
+            }
         } catch {
             print("🟣 JokeService: Error loading more jokes: \(error)")
             self.error = error
@@ -189,11 +304,28 @@ class JokeService: ObservableObject {
         isLoadingMore = false
     }
     
+    // Метод для проверки необходимости предзагрузки
+    func checkPreloadNeeded(currentIndex: Int) {
+        if currentIndex >= jokes.count - preloadThreshold && !preloadedJokes.isEmpty {
+            Task {
+                await preloadNextPage()
+            }
+        }
+    }
+    
     private func fetchJokeWithPunchlines(from document: QueryDocumentSnapshot) async throws -> Joke? {
         do {
             var joke = try document.data(as: Joke.self)
             
-            // Загружаем панчлайны из подколлекции текущего документа
+            // Сначала пробуем загрузить панчлайны из кеша
+            if let cachedPunchlines = LocalStorage.loadPunchlines(forJoke: joke.id) {
+                print("🟣 JokeService: Using cached punchlines for joke: \(joke.id)")
+                joke.punchlines = cachedPunchlines
+                return joke
+            }
+            
+            // Если в кеше нет, загружаем из Firebase
+            print("🟣 JokeService: Loading punchlines from Firebase for joke: \(joke.id)")
             let punchlinesSnapshot = try await document.reference
                 .collection("punchlines")
                 .getDocuments()
@@ -201,6 +333,9 @@ class JokeService: ObservableObject {
             joke.punchlines = try punchlinesSnapshot.documents.compactMap { punchlineDoc in
                 try punchlineDoc.data(as: Punchline.self)
             }
+            
+            // Сохраняем загруженные панчлайны в кеш
+            LocalStorage.savePunchlines(joke.punchlines, forJoke: joke.id)
             
             print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
             return joke
