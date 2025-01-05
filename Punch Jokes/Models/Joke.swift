@@ -97,9 +97,10 @@ struct Joke: Identifiable, Codable, Equatable {
     
     init() {}
     
-    init(id: String, setup: String, status: String, authorId: String, createdAt: Date, views: Int = 0, likes: Int = 0, dislikes: Int = 0) {
+    init(id: String, setup: String, punchlines: [Punchline] = [], status: String, authorId: String, createdAt: Date, views: Int = 0, likes: Int = 0, dislikes: Int = 0) {
         self.id = id
         self.setup = setup
+        self.punchlines = punchlines
         self.status = status
         self.authorId = authorId
         self.createdAt = createdAt

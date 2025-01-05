@@ -7,6 +7,8 @@
 
 import SwiftUI
 import UIKit
+import Firebase
+import FirebaseFirestore
 
 struct JokeCard: View {
     @EnvironmentObject var userService: UserService
@@ -337,7 +339,8 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-#Preview {
+// MARK: - Full Screen Preview
+#Preview("Full Screen") {
     TabBarView()
         .environmentObject(AppService())
         .environmentObject(JokeService())
