@@ -50,30 +50,30 @@ struct AddJokeSheet: View {
                     }
                 }
                 
-                Button(action: sendJoke) {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Отправить на модерацию")
-                            .fontWeight(.semibold)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    isLoading ? Color.blue.opacity(0.5) : Color.blue
-                )
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 15))
-                .padding(.horizontal)
-                .disabled(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    isLoading
-                )
+//                Button(action: sendJoke) {
+//                    if isLoading {
+//                        ProgressView()
+//                            .tint(.white)
+//                    } else {
+//                        Text("Отправить на модерацию")
+//                            .fontWeight(.semibold)
+//                    }
+//                }
+//                .frame(maxWidth: .infinity)
+//                .padding()
+//                .background(
+//                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+//                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+//                    isLoading ? Color.blue.opacity(0.5) : Color.blue
+//                )
+//                .foregroundColor(.white)
+//                .clipShape(RoundedRectangle(cornerRadius: 15))
+//                .padding(.horizontal)
+//                .disabled(
+//                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+//                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+//                    isLoading
+//                )
             }
             .navigationTitle("Новая шутка")
             .alert("Внимание", isPresented: $showAlert) {
@@ -84,27 +84,27 @@ struct AddJokeSheet: View {
         }
     }
     
-    private func sendJoke() {
-        guard let currentUser = userService.currentUser else {
-            alertMessage = "Необходимо войти в аккаунт"
-            showAlert = true
-            return
-        }
-        
-        isLoading = true
-        
-        Task {
-            do {
-                try await jokeService.addJoke(setup, punchline, author: currentUser.id)
-                isLoading = false
-                dismiss()
-            } catch {
-                alertMessage = "Ошибка: \(error.localizedDescription)"
-                showAlert = true
-            }
-            isLoading = false
-        }
-    }
+//    private func sendJoke() {
+//        guard let currentUser = userService.currentUser else {
+//            alertMessage = "Необходимо войти в аккаунт"
+//            showAlert = true
+//            return
+//        }
+//        
+//        isLoading = true
+//        
+//        Task {
+//            do {
+//                try await jokeService.addJoke(setup, punchline, author: currentUser.id)
+//                isLoading = false
+//                dismiss()
+//            } catch {
+//                alertMessage = "Ошибка: \(error.localizedDescription)"
+//                showAlert = true
+//            }
+//            isLoading = false
+//        }
+//    }
 }
 
 struct SendJokeView: View {

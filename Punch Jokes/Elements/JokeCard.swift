@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct JokeCard: View {
     @EnvironmentObject var userService: UserService
@@ -15,13 +16,12 @@ struct JokeCard: View {
     
     let joke: Joke
     var showAuthor: Bool = true
-    var showPunchline: Bool = true
     
     @State private var isExpanded = false
     @State private var isSavingFavorite = false
+    @State private var isUpdatingReaction = false
+    @State private var selectedPunchlineId: String?
     @State var img = UIImage()
-    
-    @State private var isShowingPunchline = false
     
     private var authorUsername: String {
         if userService.isLoading {
@@ -47,7 +47,6 @@ struct JokeCard: View {
     
     var body: some View {
         ZStack {
-            // Основная карточка
             mainCard
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
@@ -55,8 +54,13 @@ struct JokeCard: View {
                 )
                 .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isShowingPunchline)
-
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
+        .onAppear {
+            // Увеличиваем счетчик просмотров при появлении карточки
+            Task {
+                try? await jokeService.incrementJokeViews(joke.id)
+            }
+        }
     }
     
     private var authorImage: some View {
@@ -81,34 +85,58 @@ struct JokeCard: View {
         .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
     }
     
-    var textJoke: some View {
-//        Text(isShowingPunchline ? joke.punchline : joke.setup)
-//            .font(isShowingPunchline ? .headline : .body)
-//            .foregroundColor(isShowingPunchline ? .purple : .primary)
-//            .fontWeight(.medium)
-//            .lineSpacing(4)
-//            .padding(.bottom, 4)
-        
-        VStack (alignment: .leading) {
-            
+    var jokeContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Setup
             Text(joke.setup)
                 .font(.body)
                 .foregroundColor(.primary)
                 .fontWeight(.medium)
                 .lineSpacing(4)
-                .padding(.bottom, 4)
             
-            if isShowingPunchline {
-                Text(joke.punchline)
-                    .font(.headline)
-                    .foregroundColor(.purple)
-                    .fontWeight(.medium)
-                    .lineSpacing(4)
-                    .padding(.bottom, 4)
+            // Статистика шутки
+            HStack(spacing: 16) {
+                Label("\(joke.views)", systemImage: "eye")
+                    .foregroundColor(.gray)
+                
+                Button(action: {
+                    guard !isUpdatingReaction else { return }
+                    Task {
+                        isUpdatingReaction = true
+                        defer { isUpdatingReaction = false }
+                        try? await jokeService.toggleJokeReaction(joke.id, isLike: true)
+                    }
+                }) {
+                    Label("\(joke.likes)", systemImage: joke.likes > 0 ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .foregroundColor(joke.likes > 0 ? .blue : .gray)
+                        .opacity(isUpdatingReaction ? 0.5 : 1.0)
+                }
+                
+                Button(action: {
+                    guard !isUpdatingReaction else { return }
+                    Task {
+                        isUpdatingReaction = true
+                        defer { isUpdatingReaction = false }
+                        try? await jokeService.toggleJokeReaction(joke.id, isLike: false)
+                    }
+                }) {
+                    Label("\(joke.dislikes)", systemImage: joke.dislikes > 0 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .foregroundColor(joke.dislikes > 0 ? .red : .gray)
+                        .opacity(isUpdatingReaction ? 0.5 : 1.0)
+                }
             }
+            .font(.caption)
             
+            if isExpanded {
+                // Панчлайны
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(joke.punchlines) { punchline in
+                        PunchlineView(punchline: punchline, jokeId: joke.id)
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
-        
     }
     
     var heartIcon: some View {
@@ -126,16 +154,13 @@ struct JokeCard: View {
     
     var authorAndDate: some View {
         VStack(alignment: .leading, spacing: 4) {
-            let author = authorUsername
-            Text(author)
+            Text(authorUsername)
                 .font(.caption)
                 .foregroundColor(.gray)
             
-            if let date = joke.createdAt {
-                Text(date.formatted(.relative(presentation: .named)))
-                    .font(.caption2)
-                    .foregroundColor(.gray.opacity(0.8))
-            }
+            Text(joke.createdAt.formatted(.relative(presentation: .named)))
+                .font(.caption2)
+                .foregroundColor(.gray.opacity(0.8))
         }
     }
     
@@ -148,16 +173,14 @@ struct JokeCard: View {
     }
     
     private var mainCard: some View {
-        
         HStack {
             VStack(alignment: .leading) {
-                textJoke
+                jokeContent
                 Spacer()
                 HStack {
                     authorImage
                     authorAndDate
                 }
-                
             }
             Spacer()
             VStack {
@@ -167,34 +190,14 @@ struct JokeCard: View {
             }
             .padding(4)
         }
-        
         .padding()
-        .background(content: {
-            Color.gray.opacity(0.001)
-        })
+        .background(Color.gray.opacity(0.001))
         .onTapGesture {
             hapticFeedback()
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                isShowingPunchline.toggle()
+            withAnimation {
+                isExpanded.toggle()
             }
         }
-        
-    }
-    
-    private var punchlineCard: some View {
-        VStack(alignment: .leading) {
-            Text(joke.punchline)
-                .font(.body)
-                .fontWeight(.medium)
-                .lineSpacing(4)
-                .padding()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-        )
     }
     
     private func hapticFeedback() {
@@ -202,57 +205,121 @@ struct JokeCard: View {
         generator.impactOccurred()
     }
     
+    private func toggleFavorite() {
+        guard !isSavingFavorite else { return }
+        isSavingFavorite = true
+        
+        Task {
+            do {
+                if let currentUser = userService.currentUser {
+                    // Для авторизованного пользователя
+                    var favorites = currentUser.favouriteJokesIDs ?? []
+                    if favorites.contains(joke.id) {
+                        favorites.removeAll { $0 == joke.id }
+                    } else {
+                        favorites.append(joke.id)
+                    }
+                    currentUser.favouriteJokesIDs = favorites
+                    try await userService.saveUserToFirestore()
+                } else {
+                    // Для неавторизованного пользователя
+                    if localFavorites.contains(joke.id) {
+                        localFavorites.removeFavoriteJoke(joke.id)
+                    } else {
+                        localFavorites.addFavoriteJoke(joke.id)
+                    }
+                }
+            } catch {
+                print("Error toggling favorite: \(error)")
+            }
+            
+            isSavingFavorite = false
+        }
+    }
+    
     private func shareJoke() {
-        let textToShare = "\(joke.setup)\n\n\(joke.punchline)"
-        let activityVC = UIActivityViewController(
+        let textToShare = """
+        Setup: \(joke.setup)
+        Punchlines:
+        \(joke.punchlines.map { "- \($0.text)" }.joined(separator: "\n"))
+        """
+        
+        let activityViewController = UIActivityViewController(
             activityItems: [textToShare],
             applicationActivities: nil
         )
         
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootVC = window.rootViewController {
-            rootVC.present(activityVC, animated: true)
+           let rootViewController = windowScene.windows.first?.rootViewController {
+            rootViewController.present(activityViewController, animated: true)
         }
     }
+}
+
+// Отдельное view для панчлайна
+struct PunchlineView: View {
+    let punchline: Punchline
+    let jokeId: String
+    @EnvironmentObject var jokeService: JokeService
+    @State private var isUpdating = false
+    @State private var errorMessage: String?
     
-    private func toggleFavorite() {
-        print("🎯 Toggling favorite for joke: \(joke.id)")
-        if let currentUser = userService.currentUser {
-            print("🎯 User is logged in, using server storage")
-            // Для авторизованного пользователя
-            var favorites = currentUser.favouriteJokesIDs ?? []
-            if favorites.contains(joke.id) {
-                favorites.removeAll { $0 == joke.id }
-            } else {
-                favorites.append(joke.id)
-            }
-            currentUser.favouriteJokesIDs = favorites
-            saveFavorites()
-        } else {
-            print("🎯 User is not logged in, using local storage")
-            // Для неавторизованного пользователя
-            if localFavorites.contains(joke.id) {
-                localFavorites.removeFavoriteJoke(joke.id)
-            } else {
-                localFavorites.addFavoriteJoke(joke.id)
-            }
-        }
-    }
-    
-    private func saveFavorites() {
-        guard !isSavingFavorite else { return }
-        isSavingFavorite = true
-        
-        Task {
-            if let user = userService.currentUser {
-                do {
-                    try await userService.saveUserToFirestore()
-                } catch {
-                    print("Error saving favorites: \(error)")
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(punchline.text)
+                .font(.headline)
+                .foregroundColor(.purple)
+                .fontWeight(.medium)
+                .lineSpacing(4)
+            
+            HStack(spacing: 16) {
+                Button(action: {
+                    guard !isUpdating else { return }
+                    toggleReaction(isLike: true)
+                }) {
+                    Label("\(punchline.likes)", systemImage: punchline.likes > 0 ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .foregroundColor(punchline.likes > 0 ? .blue : .gray)
+                        .opacity(isUpdating ? 0.5 : 1.0)
+                }
+                
+                Button(action: {
+                    guard !isUpdating else { return }
+                    toggleReaction(isLike: false)
+                }) {
+                    Label("\(punchline.dislikes)", systemImage: punchline.dislikes > 0 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .foregroundColor(punchline.dislikes > 0 ? .red : .gray)
+                        .opacity(isUpdating ? 0.5 : 1.0)
                 }
             }
-            isSavingFavorite = false
+            .font(.caption)
+            
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .transition(.opacity)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        )
+    }
+    
+    private func toggleReaction(isLike: Bool) {
+        isUpdating = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: isLike)
+            } catch {
+                errorMessage = "Не удалось обновить реакцию"
+                print("Error toggling reaction: \(error)")
+            }
+            isUpdating = false
         }
     }
 }

@@ -5,7 +5,6 @@
 //  Created by Anton Nagornyi on 15.12.24..
 //
 
-
 import SwiftUI
 import Firebase
 import FirebaseFirestore
@@ -33,12 +32,8 @@ struct YourApp: App {
                 .environmentObject(appService)
                 .environmentObject(userService)
                 .environmentObject(jokeService)
-
-            
         }
     }
-    
-    
 }
 
 let db = Firestore.firestore()
@@ -49,5 +44,4 @@ let db = Firestore.firestore()
         .environmentObject(JokeService())
         .environmentObject(UserService())
         .preferredColorScheme(.dark)
-
 }

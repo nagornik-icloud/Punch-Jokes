@@ -295,59 +295,46 @@ struct UserProfileView: View {
             Circle()
                 .fill(.ultraThinMaterial)
                 .frame(width: 140, height: 140)
-                .shadow(color: .purple.opacity(0.3), radius: 10, x: 0, y: 5)
             
-            if let image = jokeService.authorImages[user.id] {
+            if isUploadingImage {
+                ProgressView()
+                    .scaleEffect(1.5)
+            } else if let image = jokeService.authorImages[user.id] {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 120, height: 120)
+                    .scaledToFill()
+                    .frame(width: 130, height: 130)
                     .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 2))
                     .scaleEffect(imageScale)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                imageScale = value
+                            }
+                            .onEnded { _ in
+                                withAnimation {
+                                    imageScale = 1.0
+                                }
+                            }
+                    )
             } else {
                 Image(systemName: "person.circle.fill")
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 120, height: 120)
+                    .scaledToFit()
+                    .frame(width: 130, height: 130)
                     .foregroundColor(.gray)
-                    .scaleEffect(imageScale)
             }
             
-            if isUploadingImage {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 140, height: 140)
-                
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.blue)
-            } else if isEditing {
-                PhotosPicker(selection: $selectedItem, matching: .images) {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 140, height: 140)
-                        .overlay(
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white)
-                        )
-                        .opacity(0.7)
-                }
-                .disabled(isUploadingImage)
+            PhotosPicker(selection: $selectedItem,
+                        matching: .images,
+                        photoLibrary: .shared()) {
+                Image(systemName: "camera.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor(.blue)
+                    .background(Color.white)
+                    .clipShape(Circle())
             }
-        }
-        .onTapGesture {
-            if isEditing {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    imageScale = 1.1
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        imageScale = 1.0
-                    }
-                }
-            }
+            .position(x: 100, y: 100)
         }
     }
     
@@ -403,9 +390,6 @@ struct UserProfileView: View {
             isUploadingImage = true
             defer {
                 isUploadingImage = false
-                DispatchQueue.main.async {
-                    self.selectedItem = nil
-                }
             }
             
             do {
@@ -417,6 +401,11 @@ struct UserProfileView: View {
                 let resizedImage = image.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? image
                 try await jokeService.uploadAuthorImage(resizedImage, userId: user.id)
                 try await jokeService.reloadAuthorImage(for: user.id)
+                
+                // Сбрасываем selectedItem после успешной загрузки
+                await MainActor.run {
+                    self.selectedItem = nil
+                }
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -439,28 +428,25 @@ struct CustomTextField: View {
     let placeholder: String
     @Binding var text: String
     var isEditing: Bool
-    @FocusState private var isFocused: Bool
     var onFocusChange: ((Bool) -> Void)?
     
     var body: some View {
-        HStack(spacing: 15) {
+        HStack {
             Image(systemName: icon)
                 .foregroundColor(.gray)
-                .frame(width: 20)
+                .frame(width: 30)
             
             TextField(placeholder, text: $text)
                 .disabled(!isEditing)
-                .focused($isFocused)
-                .onChange(of: isFocused) { newValue in
-                    onFocusChange?(newValue)
+                .onChange(of: text) { _ in
+                    onFocusChange?(true)
+                }
+                .onSubmit {
+                    onFocusChange?(false)
                 }
         }
         .padding()
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
+        .background(Color.gray.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 15))
     }
 }
