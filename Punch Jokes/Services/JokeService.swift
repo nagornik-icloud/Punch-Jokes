@@ -8,102 +8,205 @@ class JokeService: ObservableObject {
     // MARK: - Properties
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
+    private let pageSize = 20
     
     @Published var jokes: [Joke] = []
-    @Published var authorImages: [String: UIImage] = [:] // userId: UIImage
+    @Published var authorImages: [String: UIImage] = [:]
     @Published var isLoading = true
+    @Published var isLoadingImages = false
     @Published var error: Error?
+    @Published var hasMoreJokes = true
+    
+    private var lastDocument: DocumentSnapshot?
+    private var isLoadingMore = false
+    private var loadedImagesTimestamps: [String: Date] = [:]
     
     init() {
+        print("🟣 ==========================================")
         print("🟣 JokeService: Initializing...")
-        // Загружаем сохраненные данные
+        loadCachedData()
+        
+        // Загружаем свежие данные с сервера в фоне
+        Task {
+            isLoading = true
+            await loadInitialData()
+            isLoading = false
+        }
+        print("🟣 JokeService: Initialization complete")
+        print("🟣 ==========================================")
+    }
+    
+    private func loadCachedData() {
+        // Загружаем сохраненные шутки
         if let savedJokes = LocalStorage.loadJokes() {
             jokes = savedJokes
-            print("🟣 JokeService: Loaded \(savedJokes.count) jokes from local storage")
+            print("🟣 JokeService: Loaded \(savedJokes.count) jokes from cache")
         }
         
-        // Загружаем сохраненные изображения
-        for joke in jokes {
-            if authorImages[joke.authorId] == nil,
-               let savedImage = LocalStorage.loadImage(forUserId: joke.authorId) {
-                authorImages[joke.authorId] = savedImage
-                print("🟣 JokeService: Loaded image for user \(joke.authorId) from local storage")
+        // Загружаем сохраненные изображения и их временные метки
+        if let timestamps = UserDefaults.standard.dictionary(forKey: "AuthorImagesTimestamps") as? [String: Date] {
+            loadedImagesTimestamps = timestamps
+            print("🟣 JokeService: Loaded \(timestamps.count) image timestamps")
+        }
+        
+        // Загружаем все сохраненные изображения
+        let uniqueAuthors = Set(jokes.map { $0.authorId })
+        for authorId in uniqueAuthors {
+            if let savedImage = LocalStorage.loadImage(forUserId: authorId) {
+                authorImages[authorId] = savedImage
+                print("🟣 JokeService: Loaded cached image for author: \(authorId)")
             }
         }
         
-        // Загружаем свежие данные с сервера
-        Task {
-            await loadInitialData()
+        // Если в кеше нет шуток, оставляем isLoading = true
+        isLoading = jokes.isEmpty
+    }
+    
+    private func loadAllAuthorImages() async {
+        print("🟣 JokeService: Starting bulk image load")
+        print("🟣 JokeService: Current jokes count: \(jokes.count)")
+        
+        let uniqueAuthors = Set(jokes.map { $0.authorId })
+        print("🟣 JokeService: Found \(uniqueAuthors.count) unique authors: \(uniqueAuthors)")
+        
+        for authorId in uniqueAuthors {
+            print("🟣 JokeService: Processing author: \(authorId)")
+            if let image = try? await loadAuthorImage(for: authorId) {
+                await MainActor.run {
+                    authorImages[authorId] = image
+                    loadedImagesTimestamps[authorId] = Date()
+                }
+                LocalStorage.saveImage(image, forUserId: authorId)
+                print("🟣 JokeService: Successfully saved image for author: \(authorId)")
+            }
         }
-        print("🟣 JokeService: Initialization complete")
+        
+        print("🟣 JokeService: Bulk image load complete. Loaded \(authorImages.count) images")
+    }
+    
+    private func loadAuthorImage(for userId: String) async throws -> UIImage? {
+        print("🟣 JokeService: Loading image for author: \(userId)")
+        let storageRef = storage.reference().child("user_images/\(userId).jpg")
+        
+        do {
+            let url = try await storageRef.downloadURL()
+            print("🟣 JokeService: Got download URL for author: \(userId) - \(url)")
+            
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("🟣 JokeService: Invalid response for author: \(userId)")
+                return nil
+            }
+            
+            guard let image = UIImage(data: data) else {
+                print("🟣 JokeService: Failed to create image from data for author: \(userId)")
+                return nil
+            }
+            
+            print("🟣 JokeService: Successfully loaded image for author: \(userId)")
+            return image
+        } catch {
+            print("🟣 JokeService: Error loading image for author: \(userId) - \(error)")
+            return nil
+        }
     }
     
     // MARK: - Data Loading
     func loadInitialData() async {
         print("🟣 JokeService: Starting initial data load")
-        isLoading = true
         do {
-            defer {
-                isLoading = false
-                print("🟣 JokeService: Initial data load completed")
-            }
+            let snapshot = try await db.collection("jokes")
+                .order(by: "createdAt", descending: true)
+                .limit(to: pageSize)
+                .getDocuments()
             
-            // Загружаем шутки
-            print("🟣 JokeService: Fetching jokes from Firestore...")
-            let snapshot = try await db.collection("jokes").getDocuments()
             print("🟣 JokeService: Retrieved \(snapshot.documents.count) joke documents")
             
             var fetchedJokes: [Joke] = []
-            
             for document in snapshot.documents {
-                do {
-                    var joke = try document.data(as: Joke.self)
-                    
-                    // Загружаем панчлайны для каждой шутки
-                    let punchlinesSnapshot = try await document.reference.collection("punchlines").getDocuments()
-                    joke.punchlines = try punchlinesSnapshot.documents.compactMap { punchlineDoc in
-                        try punchlineDoc.data(as: Punchline.self)
-                    }
-                    
+                if let joke = try? await fetchJokeWithPunchlines(from: document) {
                     fetchedJokes.append(joke)
                     print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
-                } catch {
-                    print("🟣 JokeService: Failed to decode joke from document \(document.documentID): \(error)")
                 }
             }
             
-            // Проверяем, изменились ли данные
-            let shouldUpdate = shouldUpdateLocalStorage(newJokes: fetchedJokes)
-            if shouldUpdate {
-                self.jokes = fetchedJokes
-                // Сохраняем шутки локально
+            if jokes != fetchedJokes {
+                lastDocument = snapshot.documents.last
+                hasMoreJokes = !snapshot.documents.isEmpty
+                jokes = fetchedJokes
                 LocalStorage.saveJokes(fetchedJokes)
-                print("🟣 JokeService: Data changed, updated jokes array with \(fetchedJokes.count) jokes")
+                print("🟣 JokeService: Updated jokes array with \(fetchedJokes.count) jokes")
+                
+                // Загружаем изображения сразу после обновления шуток
+                print("🟣 JokeService: Starting image loading after jokes update")
+                isLoadingImages = true
+                await loadAllAuthorImages()
+                isLoadingImages = false
+                print("🟣 JokeService: Completed image loading after jokes update")
             } else {
-                print("🟣 JokeService: No changes detected in jokes data")
+                print("🟣 JokeService: No changes in jokes data")
             }
+        } catch {
+            print("🟣 JokeService: Error loading initial data: \(error)")
+            self.error = error
+        }
+    }
+    
+    func loadMoreJokes() async {
+        guard !isLoadingMore, hasMoreJokes, let lastDocument = lastDocument else { return }
+        
+        isLoadingMore = true
+        print("🟣 JokeService: Loading more jokes")
+        
+        do {
+            let snapshot = try await db.collection("jokes")
+                .order(by: "createdAt", descending: true)
+                .limit(to: pageSize)
+                .start(afterDocument: lastDocument)
+                .getDocuments()
             
-            // Загружаем изображения авторов
-            let uniqueAuthors = Set(jokes.map { $0.authorId })
-            print("🟣 JokeService: Found \(uniqueAuthors.count) unique authors, loading their images")
-            
-            for authorId in uniqueAuthors {
-                if authorImages[authorId] == nil {
-                    print("🟣 JokeService: Loading image for author: \(authorId)")
-                    if let image = try? await loadAuthorImage(for: authorId) {
-                        authorImages[authorId] = image
-                        // Сохраняем изображение локально
-                        LocalStorage.saveImage(image, forUserId: authorId)
-                        print("🟣 JokeService: Successfully loaded image for author: \(authorId)")
-                    } else {
-                        print("🟣 JokeService: Failed to load image for author: \(authorId)")
-                    }
+            var newJokes: [Joke] = []
+            for document in snapshot.documents {
+                if let joke = try? await fetchJokeWithPunchlines(from: document) {
+                    newJokes.append(joke)
+                    print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
                 }
             }
             
+            self.lastDocument = snapshot.documents.last
+            hasMoreJokes = !snapshot.documents.isEmpty
+            
+            jokes.append(contentsOf: newJokes)
+            LocalStorage.saveJokes(jokes)
+            
+            print("🟣 JokeService: Loaded \(newJokes.count) more jokes")
         } catch {
-            print("🟣 JokeService: Error during initial data load: \(error)")
+            print("🟣 JokeService: Error loading more jokes: \(error)")
             self.error = error
+        }
+        
+        isLoadingMore = false
+    }
+    
+    private func fetchJokeWithPunchlines(from document: QueryDocumentSnapshot) async throws -> Joke? {
+        do {
+            var joke = try document.data(as: Joke.self)
+            
+            // Загружаем панчлайны из подколлекции текущего документа
+            let punchlinesSnapshot = try await document.reference
+                .collection("punchlines")
+                .getDocuments()
+            
+            joke.punchlines = try punchlinesSnapshot.documents.compactMap { punchlineDoc in
+                try punchlineDoc.data(as: Punchline.self)
+            }
+            
+            print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
+            return joke
+        } catch {
+            print("🟣 JokeService: Failed to decode joke from document \(document.documentID): \(error)")
+            return nil
         }
     }
     
@@ -121,8 +224,7 @@ class JokeService: ObservableObject {
         try await jokeRef.setData(from: joke)
         
         // Обновляем локальное состояние
-        jokes.append(joke)
-        // Сохраняем обновленные данные локально
+        jokes.insert(joke, at: 0)  // Добавляем в начало списка
         LocalStorage.saveJokes(jokes)
     }
     
@@ -137,6 +239,7 @@ class JokeService: ObservableObject {
         // Обновляем локальное состояние
         if let index = jokes.firstIndex(where: { $0.id == jokeId }) {
             jokes[index].views += 1
+            LocalStorage.saveJokes(jokes)
             print("🟣 JokeService: Views updated for joke \(jokeId), new count: \(jokes[index].views)")
         }
     }
@@ -145,7 +248,6 @@ class JokeService: ObservableObject {
         print("🟣 JokeService: Toggling \(isLike ? "like" : "dislike") for joke \(jokeId)")
         let jokeRef = db.collection("jokes").document(jokeId)
         
-        // Получаем текущее состояние шутки
         guard let index = jokes.firstIndex(where: { $0.id == jokeId }) else {
             print("🟣 JokeService: Joke not found in local state")
             return
@@ -201,37 +303,13 @@ class JokeService: ObservableObject {
             }
         }
         
-        print("🟣 JokeService: Reaction updated for joke \(jokeId), likes: \(jokes[index].likes), dislikes: \(jokes[index].dislikes)")
-    }
-    
-    // MARK: - Punchline Operations
-    func addPunchline(to jokeId: String, text: String, authorId: String) async throws {
-        let punchline = Punchline(
-            id: UUID().uuidString,
-            text: text,
-            likes: 0,
-            dislikes: 0,
-            status: "pending",
-            authorId: authorId,
-            createdAt: Date()
-        )
-        
-        let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchline.id)
-        try await punchlineRef.setData(from: punchline)
-        
-        // Обновляем локальное состояние
-        if let index = jokes.firstIndex(where: { $0.id == jokeId }) {
-            jokes[index].punchlines.append(punchline)
-            // Сохраняем обновленные данные локально
-            LocalStorage.saveJokes(jokes)
-        }
+        LocalStorage.saveJokes(jokes)
     }
     
     func togglePunchlineReaction(_ jokeId: String, _ punchlineId: String, isLike: Bool) async throws {
-        print("🟣 JokeService: Toggling \(isLike ? "like" : "dislike") for punchline \(punchlineId) in joke \(jokeId)")
+        print("🟣 JokeService: Toggling \(isLike ? "like" : "dislike") for punchline \(punchlineId)")
         let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchlineId)
         
-        // Получаем текущее состояние панчлайна
         guard let jokeIndex = jokes.firstIndex(where: { $0.id == jokeId }),
               let punchlineIndex = jokes[jokeIndex].punchlines.firstIndex(where: { $0.id == punchlineId }) else {
             print("🟣 JokeService: Punchline not found in local state")
@@ -288,13 +366,35 @@ class JokeService: ObservableObject {
             }
         }
         
-        print("🟣 JokeService: Reaction updated for punchline \(punchlineId), likes: \(jokes[jokeIndex].punchlines[punchlineIndex].likes), dislikes: \(jokes[jokeIndex].punchlines[punchlineIndex].dislikes)")
-        
-        // Сохраняем обновленные данные локально
         LocalStorage.saveJokes(jokes)
     }
     
+    // MARK: - Punchline Operations
+    func addPunchline(to jokeId: String, text: String, authorId: String) async throws {
+        print("🟣 JokeService: Adding punchline to joke \(jokeId)")
+        let punchline = Punchline(
+            id: UUID().uuidString,
+            text: text,
+            likes: 0,
+            dislikes: 0,
+            status: "pending",
+            authorId: authorId,
+            createdAt: Date()
+        )
+        
+        let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchline.id)
+        try await punchlineRef.setData(from: punchline)
+        
+        // Обновляем локальное состояние
+        if let index = jokes.firstIndex(where: { $0.id == jokeId }) {
+            jokes[index].punchlines.append(punchline)
+            LocalStorage.saveJokes(jokes)
+            print("🟣 JokeService: Successfully added punchline \(punchline.id) to joke \(jokeId)")
+        }
+    }
+    
     func updatePunchlineStatus(_ jokeId: String, _ punchlineId: String, status: String) async throws {
+        print("🟣 JokeService: Updating status for punchline \(punchlineId) to \(status)")
         let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchlineId)
         
         try await punchlineRef.updateData([
@@ -305,80 +405,31 @@ class JokeService: ObservableObject {
         if let jokeIndex = jokes.firstIndex(where: { $0.id == jokeId }),
            let punchlineIndex = jokes[jokeIndex].punchlines.firstIndex(where: { $0.id == punchlineId }) {
             jokes[jokeIndex].punchlines[punchlineIndex].status = status
-            // Сохраняем обновленные данные локально
             LocalStorage.saveJokes(jokes)
+            print("🟣 JokeService: Successfully updated punchline status")
         }
     }
     
     // MARK: - Helper Methods
-    private func shouldUpdateLocalStorage(newJokes: [Joke]) -> Bool {
-        // Если количество шуток изменилось, однозначно нужно обновить
-        guard newJokes.count == jokes.count else {
-            print("🟣 JokeService: Jokes count changed: local \(jokes.count) vs server \(newJokes.count)")
-            return true
-        }
-        
-        // Создаем словари для быстрого поиска
-        let currentJokesDict = Dictionary(uniqueKeysWithValues: jokes.map { ($0.id, $0) })
-        let newJokesDict = Dictionary(uniqueKeysWithValues: newJokes.map { ($0.id, $0) })
-        
-        // Проверяем, есть ли различия
-        for (id, newJoke) in newJokesDict {
-            guard let currentJoke = currentJokesDict[id] else {
-                print("🟣 JokeService: Found new joke with id: \(id)")
-                return true
-            }
-            
-            // Проверяем основные поля шутки
-            if newJoke.setup != currentJoke.setup ||
-               newJoke.status != currentJoke.status ||
-               newJoke.views != currentJoke.views ||
-               newJoke.likes != currentJoke.likes ||
-               newJoke.dislikes != currentJoke.dislikes {
-                print("🟣 JokeService: Joke \(id) has updated fields")
-                return true
-            }
-            
-            // Проверяем панчлайны
-            if newJoke.punchlines.count != currentJoke.punchlines.count {
-                print("🟣 JokeService: Punchlines count changed for joke \(id)")
-                return true
-            }
-            
-            // Создаем словари панчлайнов для быстрого поиска
-            let currentPunchlinesDict = Dictionary(uniqueKeysWithValues: currentJoke.punchlines.map { ($0.id, $0) })
-            let newPunchlinesDict = Dictionary(uniqueKeysWithValues: newJoke.punchlines.map { ($0.id, $0) })
-            
-            for (punchlineId, newPunchline) in newPunchlinesDict {
-                guard let currentPunchline = currentPunchlinesDict[punchlineId] else {
-                    print("🟣 JokeService: Found new punchline \(punchlineId) for joke \(id)")
-                    return true
-                }
-                
-                // Проверяем поля панчлайна
-                if newPunchline.text != currentPunchline.text ||
-                   newPunchline.status != currentPunchline.status ||
-                   newPunchline.likes != currentPunchline.likes ||
-                   newPunchline.dislikes != currentPunchline.dislikes {
-                    print("🟣 JokeService: Punchline \(punchlineId) has updated fields")
-                    return true
-                }
-            }
-        }
-        
-        return false
-    }
-    
     func getJokesByAuthor(_ authorId: String) -> [Joke] {
-        return jokes.filter { $0.authorId == authorId }
+        let authorJokes = jokes.filter { $0.authorId == authorId }
+        print("🟣 JokeService: Found \(authorJokes.count) jokes by author \(authorId)")
+        return authorJokes
     }
     
     func getPunchlines(for jokeId: String, withStatus status: String? = nil) -> [Punchline] {
-        guard let joke = jokes.first(where: { $0.id == jokeId }) else { return [] }
+        guard let joke = jokes.first(where: { $0.id == jokeId }) else {
+            print("🟣 JokeService: No joke found with ID \(jokeId)")
+            return []
+        }
         
         if let status = status {
-            return joke.punchlines.filter { $0.status == status }
+            let filteredPunchlines = joke.punchlines.filter { $0.status == status }
+            print("🟣 JokeService: Found \(filteredPunchlines.count) punchlines with status \(status) for joke \(jokeId)")
+            return filteredPunchlines
         }
+        
+        print("🟣 JokeService: Returning all \(joke.punchlines.count) punchlines for joke \(jokeId)")
         return joke.punchlines
     }
     
@@ -389,27 +440,35 @@ class JokeService: ObservableObject {
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to data"])
         }
         
-        let storageRef = storage.reference().child("user_images/\(userId).jpg")
+        let storageRef = storage.reference().child("profile_images/\(userId).jpg")
         _ = try await storageRef.putDataAsync(imageData)
-        print("🟣 JokeService: Successfully uploaded image for author: \(userId)")
         
         // Обновляем кэш
         authorImages[userId] = image
         LocalStorage.saveImage(image, forUserId: userId)
-    }
-    
-    private func loadAuthorImage(for userId: String) async throws -> UIImage? {
-        let storageRef = storage.reference().child("user_images/\(userId).jpg")
-        let data = try await storageRef.data(maxSize: 4 * 1024 * 1024)
-        return UIImage(data: data)
+        print("🟣 JokeService: Successfully uploaded and cached image for author: \(userId)")
     }
     
     func reloadAuthorImage(for userId: String) async {
         print("🟣 JokeService: Reloading image for author: \(userId)")
-        if let image = try? await loadAuthorImage(for: userId) {
-            authorImages[userId] = image
-            LocalStorage.saveImage(image, forUserId: userId)
-            print("🟣 JokeService: Successfully reloaded image for author: \(userId)")
+        
+        // Проверяем, не загружается ли уже изображение
+        guard authorImages[userId] == nil && !loadedImagesTimestamps.keys.contains(userId) else {
+            print("🟣 JokeService: Image for author \(userId) is already loaded or loading")
+            return
+        }
+        
+        do {
+            if let image = try await loadAuthorImage(for: userId) {
+                authorImages[userId] = image
+                loadedImagesTimestamps[userId] = Date()
+                LocalStorage.saveImage(image, forUserId: userId)
+                print("🟣 JokeService: Successfully reloaded and cached image for author: \(userId)")
+            } else {
+                print("🟣 JokeService: No image available for author: \(userId)")
+            }
+        } catch {
+            print("🟣 JokeService: Error reloading image for author: \(userId) - \(error)")
         }
     }
 }

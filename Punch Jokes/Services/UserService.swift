@@ -10,6 +10,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import SwiftUI
 
+@MainActor
 class UserService: ObservableObject {
     // MARK: - Properties
     private let auth = Auth.auth()
@@ -23,36 +24,47 @@ class UserService: ObservableObject {
     
     init() {
         print("👤 UserService: Initializing...")
+        loadCachedData()
+        setupAuthStateListener()
         
-        // Загружаем кэш имен пользователей
-        userNameCache = LocalStorage.loadUserNameCache()
-        isLoading = false
-        print("👤 UserService: Loaded username cache with \(userNameCache.count) entries")
-        
+        // Загружаем свежие данные с сервера в фоне
         Task {
             await loadInitialData()
-            setupAuthStateListener()
         }
         print("👤 UserService: Initialization complete")
+    }
+    
+    private func loadCachedData() {
+        // Загружаем кэшированные данные
+        if let cachedUsers = LocalStorage.loadUsers() {
+            allUsers = cachedUsers
+            print("👤 UserService: Loaded \(cachedUsers.count) users from cache")
+        }
+        
+        if let cachedCurrentUser = LocalStorage.loadCurrentUser() {
+            currentUser = cachedCurrentUser
+            print("👤 UserService: Loaded current user from cache")
+        }
+        
+        userNameCache = LocalStorage.loadUserNameCache()
+        print("👤 UserService: Loaded username cache with \(userNameCache.count) entries")
+        
+        isLoading = false
     }
     
     private func setupAuthStateListener() {
         print("👤 UserService: Setting up auth state listener")
         auth.addStateDidChangeListener { [weak self] _, user in
-            guard let self = self else {
-                print("👤 UserService: Self is nil in auth listener")
-                return
-            }
-            
-            if let user = user {
-                print("👤 UserService: Auth state changed - user logged in with ID: \(user.uid)")
-                Task {
+            Task { @MainActor in
+                guard let self = self else { return }
+                
+                if let user = user {
+                    print("👤 UserService: Auth state changed - user logged in with ID: \(user.uid)")
                     await self.fetchCurrentUser(userId: user.uid)
-                }
-            } else {
-                print("👤 UserService: Auth state changed - user logged out")
-                DispatchQueue.main.async {
+                } else {
+                    print("👤 UserService: Auth state changed - user logged out")
                     self.currentUser = nil
+                    LocalStorage.saveCurrentUser(User(id: "", email: ""))  // Сбрасываем кеш текущего пользователя
                 }
             }
         }
@@ -61,11 +73,6 @@ class UserService: ObservableObject {
     func loadInitialData() async {
         print("👤 UserService: Starting initial data load")
         do {
-            defer {
-                isLoading = false
-                print("👤 UserService: Initial data load completed")
-            }
-            
             // Загружаем всех пользователей
             print("👤 UserService: Fetching all users")
             let snapshot = try await db.collection("users").getDocuments()
@@ -82,28 +89,32 @@ class UserService: ObservableObject {
                 }
             }
             
-            // Обновляем список пользователей
-            await MainActor.run {
-                self.allUsers = fetchedUsers
+            // Проверяем, изменились ли данные
+            if fetchedUsers != allUsers {
+                allUsers = fetchedUsers
+                LocalStorage.saveUsers(fetchedUsers)
                 print("👤 UserService: Updated users array with \(fetchedUsers.count) users")
                 
                 // Обновляем кэш имен пользователей
+                var newCache: [String: String] = [:]
                 for user in fetchedUsers {
                     let name = user.username ?? user.name ?? "Пользователь"
-                    self.userNameCache[user.id] = name
-                    print("👤 UserService: Cached name for user \(user.id): \(name)")
+                    newCache[user.id] = name
                 }
                 
-                // Сохраняем кэш
-                LocalStorage.saveUserNameCache(self.userNameCache)
+                if newCache != userNameCache {
+                    userNameCache = newCache
+                    LocalStorage.saveUserNameCache(newCache)
+                    print("👤 UserService: Updated username cache")
+                }
+            } else {
+                print("👤 UserService: No changes in users data")
             }
             
-            // Если есть текущий пользователь, загружаем его данные
+            // Если есть текущий пользователь, обновляем его данные
             if let currentUserId = auth.currentUser?.uid {
                 print("👤 UserService: Current user found, fetching details for ID: \(currentUserId)")
                 await fetchCurrentUser(userId: currentUserId)
-            } else {
-                print("👤 UserService: No current user found")
             }
             
         } catch {
@@ -114,23 +125,23 @@ class UserService: ObservableObject {
     
     private func fetchCurrentUser(userId: String) async {
         print("👤 UserService: Fetching current user with ID: \(userId)")
-        defer { isLoading = false }
         do {
             let document = try await db.collection("users").document(userId).getDocument()
-            await MainActor.run {
-                if let user = try? document.data(as: User.self) {
-                    self.currentUser = user
-                    print("👤 UserService: Successfully fetched and set current user: \(user.id)")
+            if let user = try? document.data(as: User.self) {
+                if user != currentUser {
+                    currentUser = user
+                    LocalStorage.saveCurrentUser(user)
+                    print("👤 UserService: Successfully fetched and saved current user: \(user.id)")
                 } else {
-                    print("👤 UserService: Failed to decode current user document")
-                    self.error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode user data"])
+                    print("👤 UserService: Current user data hasn't changed")
                 }
+            } else {
+                print("👤 UserService: Failed to decode current user document")
+                error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode user data"])
             }
         } catch {
             print("👤 UserService: Error fetching current user: \(error)")
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
         }
     }
     
@@ -139,6 +150,7 @@ class UserService: ObservableObject {
         do {
             try auth.signOut()
             currentUser = nil
+            LocalStorage.saveCurrentUser(User(id: "", email: ""))  // Сбрасываем кеш
             print("👤 UserService: Successfully logged out")
         } catch {
             print("👤 UserService: Error during logout: \(error)")
@@ -152,21 +164,23 @@ class UserService: ObservableObject {
             try await db.collection("users").document(user.id).setData(from: user)
             print("👤 UserService: Successfully updated user in Firestore")
             
-            await MainActor.run {
-                if user.id == currentUser?.id {
-                    currentUser = user
-                    print("👤 UserService: Updated current user")
-                }
-                if let index = allUsers.firstIndex(where: { $0.id == user.id }) {
-                    allUsers[index] = user
-                    print("👤 UserService: Updated user in allUsers array")
-                }
-                userNameCache[user.id] = user.username ?? user.name ?? "Пользователь"
-                print("👤 UserService: Updated user in name cache")
-                
-                // Сохраняем обновленный кэш
-                LocalStorage.saveUserNameCache(userNameCache)
+            if user.id == currentUser?.id {
+                currentUser = user
+                LocalStorage.saveCurrentUser(user)
+                print("👤 UserService: Updated current user")
             }
+            
+            if let index = allUsers.firstIndex(where: { $0.id == user.id }) {
+                allUsers[index] = user
+                LocalStorage.saveUsers(allUsers)
+                print("👤 UserService: Updated user in allUsers array")
+            }
+            
+            let name = user.username ?? user.name ?? "Пользователь"
+            userNameCache[user.id] = name
+            LocalStorage.saveUserNameCache(userNameCache)
+            print("👤 UserService: Updated user in name cache")
+            
         } catch {
             print("👤 UserService: Error updating user: \(error)")
             throw error
@@ -203,63 +217,37 @@ class UserService: ObservableObject {
     
     func register(email: String, password: String, username: String) async throws {
         print("👤 UserService: Attempting to register with email: \(email)")
+        isLoading = true
+        defer { isLoading = false }
+        
         do {
             let result = try await auth.createUser(withEmail: email, password: password)
-            print("👤 UserService: Successfully created user: \(result.user.uid)")
+            let user = User(id: result.user.uid, email: email, username: username)
             
-            // Создаем профиль пользователя
-            let user = User(
-                id: result.user.uid,
-                email: email,
-                username: username,
-                name: username,
-                createdAt: Date()
-            )
+            try await db.collection("users").document(user.id).setData(from: user)
+            currentUser = user
+            LocalStorage.saveCurrentUser(user)
             
-            // Сохраняем в Firestore
-            try? db.collection("users").document(user.id).setData(from: user)
-            print("👤 UserService: Saved user profile to Firestore")
-            
-            await MainActor.run {
-                self.currentUser = user
-                self.allUsers.append(user)
-                self.userNameCache[user.id] = username
-                LocalStorage.saveUserNameCache(self.userNameCache)
+            if let index = allUsers.firstIndex(where: { $0.id == user.id }) {
+                allUsers[index] = user
+            } else {
+                allUsers.append(user)
             }
+            LocalStorage.saveUsers(allUsers)
+            
+            userNameCache[user.id] = username
+            LocalStorage.saveUserNameCache(userNameCache)
+            
+            print("👤 UserService: Successfully registered and saved user data")
         } catch {
-            print("👤 UserService: Registration failed: \(error)")
+            print("👤 UserService: Registration failed with error: \(error)")
             throw error
         }
     }
     
-    func logout() async throws {
-        print("👤 UserService: Attempting to logout")
-        do {
-            try auth.signOut()
-            await MainActor.run {
-                self.currentUser = nil
-                print("👤 UserService: Successfully logged out")
-            }
-        } catch {
-            print("👤 UserService: Logout failed: \(error)")
-            throw error
-        }
-    }
-    
-    func resetPassword(email: String) async throws {
-        print("👤 UserService: Attempting to send password reset for email: \(email)")
-        do {
-            try await auth.sendPasswordReset(withEmail: email)
-            print("👤 UserService: Password reset email sent")
-        } catch {
-            print("👤 UserService: Password reset failed: \(error)")
-            throw error
-        }
-    }
-    
-    func syncFavorites() async throws {
+    private func syncFavorites() async throws {
         guard let currentUser = currentUser else { return }
-        defer { isLoading = false }
+        
         // Получаем локальные избранные
         let localFavoritesService = await LocalFavoritesService()
         let localFavorites = await localFavoritesService.favorites
@@ -271,12 +259,25 @@ class UserService: ObservableObject {
         let mergedFavorites = localFavorites.union(serverFavorites)
         
         // Обновляем пользователя
-        currentUser.favouriteJokesIDs = Array(mergedFavorites)
+        var updatedUser = currentUser
+        updatedUser.favouriteJokesIDs = Array(mergedFavorites)
         
-        // Сохраняем на сервер
-        try await saveUserToFirestore()
+        // Сохраняем на сервер и в кэш
+        try await updateUser(updatedUser)
         
         // Очищаем локальные избранные после успешной синхронизации
         await localFavoritesService.clearFavorites()
+        print("👤 UserService: Successfully synced favorites")
+    }
+    
+    func resetPassword(email: String) async throws {
+        print("👤 UserService: Attempting to send password reset for email: \(email)")
+        do {
+            try await auth.sendPasswordReset(withEmail: email)
+            print("👤 UserService: Password reset email sent")
+        } catch {
+            print("👤 UserService: Password reset failed: \(error)")
+            throw error
+        }
     }
 }

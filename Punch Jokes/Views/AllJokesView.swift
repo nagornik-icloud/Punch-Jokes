@@ -27,9 +27,13 @@ struct AllJokesView: View {
     var body: some View {
         NavigationView {
             Group {
-                if jokeService.jokes.isEmpty && jokeService.isLoading {
-                    ProgressView()
-                        .padding()
+                if jokeService.isLoading {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Загружаем шутки...")
+                            .foregroundColor(.gray)
+                    }
+                    .padding()
                 } else if sortedJokes.isEmpty {
                     ContentUnavailableView("Нет шуток",
                         systemImage: "text.bubble",

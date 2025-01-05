@@ -65,24 +65,27 @@ struct JokeCard: View {
     
     private var authorImage: some View {
         Group {
-            if jokeService.isLoading {
-                ProgressView()
-                    .frame(width: 40, height: 40)
-            } else if let image = jokeService.authorImages[joke.authorId] {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .transition(.opacity)
-            } else {
+            ZStack {
                 Image(systemName: "person.circle.fill")
                     .resizable()
                     .scaledToFit()
                     .foregroundColor(.gray)
+                
+                if let image = jokeService.authorImages[joke.authorId] {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else if jokeService.isLoadingImages {
+                    ProgressView()
+                        .frame(width: 30, height: 30)
+                }
             }
         }
         .frame(width: 30, height: 30)
         .clipShape(Circle())
         .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
+        .animation(.easeInOut, value: jokeService.isLoadingImages)
     }
     
     var jokeContent: some View {

@@ -6,9 +6,19 @@
 //
 
 import SwiftUI
-import FirebaseStorage
 import UIKit
 import Combine
+
+// MARK: - Gesture Handler
+class ClearCacheGestureHandler: NSObject {
+    static let shared = ClearCacheGestureHandler()
+    
+    @objc func handleGesture(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            NotificationCenter.default.post(name: NSNotification.Name("ShowClearCacheAlert"), object: nil)
+        }
+    }
+}
 
 extension UIApplication {
     func endEditing() {
@@ -26,6 +36,7 @@ struct TabBarView: View {
 
     @State private var keyboardHeight: CGFloat = 0
     @State private var isKeyboardVisible = false
+    @State private var showingClearCacheAlert = false
     
     @Environment(\.colorScheme) var colorScheme
     
@@ -64,11 +75,22 @@ struct TabBarView: View {
             Task {
                 print("TabBarView appeared, fetching jokes...")
                 setupKeyboardObservers()
-//                await jokeService.fetchJokes()
+                setupClearCacheGesture()
             }
         }
         .onDisappear {
             NotificationCenter.default.removeObserver(self)
+        }
+        .alert("Очистить кеш?", isPresented: $showingClearCacheAlert) {
+            Button("Очистить", role: .destructive) {
+                clearCache()
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Это действие очистит весь кеш приложения. Потребуется перезагрузка.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowClearCacheAlert"))) { _ in
+            showingClearCacheAlert = true
         }
         
     }
@@ -156,6 +178,20 @@ struct TabBarView: View {
                 self.appService.showTabBar = true
             }
         }
+    }
+    
+    private func setupClearCacheGesture() {
+        let gesture = UILongPressGestureRecognizer(target: ClearCacheGestureHandler.shared, action: #selector(ClearCacheGestureHandler.handleGesture(_:)))
+        gesture.minimumPressDuration = 3
+        gesture.delaysTouchesBegan = true
+        gesture.cancelsTouchesInView = false
+        UIApplication.shared.keyWindow?.addGestureRecognizer(gesture)
+    }
+    
+    private func clearCache() {
+        LocalStorage.clearAllCache()
+        // Перезапускаем приложение
+        exit(0)
     }
 }
 
