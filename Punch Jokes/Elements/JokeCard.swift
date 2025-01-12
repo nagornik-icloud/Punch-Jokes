@@ -13,17 +13,16 @@ import FirebaseFirestore
 struct JokeCard: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
+    @EnvironmentObject var localFavorites: LocalFavoritesService
+    @EnvironmentObject var reactionsService: UserReactionsService
+    
     @Environment(\.colorScheme) var colorScheme
-    @StateObject private var localFavorites = LocalFavoritesService()
     
     let joke: Joke
-    var showAuthor: Bool = true
     
     @State private var isExpanded = false
     @State private var isSavingFavorite = false
     @State private var isUpdatingReaction = false
-    @State private var selectedPunchlineId: String?
-    @State var img = UIImage()
     
     private var authorUsername: String {
         if userService.isLoading {
@@ -65,6 +64,34 @@ struct JokeCard: View {
         }
     }
     
+    private var mainCard: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                jokeContent
+                Spacer()
+                HStack {
+                    authorImage
+                    authorAndDate
+                }
+            }
+            Spacer()
+            VStack {
+                heartIcon
+                Spacer()
+                shareButton
+            }
+            .padding(4)
+        }
+        .padding()
+        .background(Color.gray.opacity(0.01))
+        .onTapGesture {
+            hapticFeedback()
+            withAnimation {
+                isExpanded.toggle()
+            }
+        }
+    }
+    
     private var authorImage: some View {
         Group {
             ZStack {
@@ -84,10 +111,10 @@ struct JokeCard: View {
                 }
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 20, height: 20)
         .clipShape(Circle())
-        .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
-        .animation(.easeInOut, value: jokeService.isLoadingImages)
+//        .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
+//        .animation(.easeInOut, value: jokeService.isLoadingImages)
     }
     
     var jokeContent: some View {
@@ -135,7 +162,7 @@ struct JokeCard: View {
             if isExpanded {
                 // Панчлайны
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(joke.punchlines) { punchline in
+                    ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
                         PunchlineView(punchline: punchline, jokeId: joke.id)
                     }
                 }
@@ -177,33 +204,7 @@ struct JokeCard: View {
         }
     }
     
-    private var mainCard: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                jokeContent
-                Spacer()
-                HStack {
-                    authorImage
-                    authorAndDate
-                }
-            }
-            Spacer()
-            VStack {
-                heartIcon
-                Spacer()
-                shareButton
-            }
-            .padding(4)
-        }
-        .padding()
-        .background(Color.gray.opacity(0.001))
-        .onTapGesture {
-            hapticFeedback()
-            withAnimation {
-                isExpanded.toggle()
-            }
-        }
-    }
+    
     
     private func hapticFeedback() {
         let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -266,24 +267,32 @@ struct PunchlineView: View {
     let punchline: Punchline
     let jokeId: String
     @EnvironmentObject var jokeService: JokeService
+    @EnvironmentObject var userService: UserService
+    @EnvironmentObject var reactionsService: UserReactionsService
     @State private var isUpdating = false
     @State private var errorMessage: String?
     
+    private var currentReaction: String? {
+        reactionsService.getCurrentReaction(for: punchline.id)
+    }
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             Text(punchline.text)
                 .font(.headline)
                 .foregroundColor(.purple)
                 .fontWeight(.medium)
                 .lineSpacing(4)
             
+            Spacer()
+            
             HStack(spacing: 16) {
                 Button(action: {
                     guard !isUpdating else { return }
                     toggleReaction(isLike: true)
                 }) {
-                    Label("\(punchline.likes)", systemImage: punchline.likes > 0 ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .foregroundColor(punchline.likes > 0 ? .blue : .gray)
+                    Label("\(punchline.likes)", systemImage: currentReaction == "like" ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .foregroundColor(currentReaction == "like" ? .blue : .gray)
                         .opacity(isUpdating ? 0.5 : 1.0)
                 }
                 
@@ -291,8 +300,8 @@ struct PunchlineView: View {
                     guard !isUpdating else { return }
                     toggleReaction(isLike: false)
                 }) {
-                    Label("\(punchline.dislikes)", systemImage: punchline.dislikes > 0 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .foregroundColor(punchline.dislikes > 0 ? .red : .gray)
+                    Label("\(punchline.dislikes)", systemImage: currentReaction == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .foregroundColor(currentReaction == "dislike" ? .red : .gray)
                         .opacity(isUpdating ? 0.5 : 1.0)
                 }
             }
@@ -306,20 +315,26 @@ struct PunchlineView: View {
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
-        )
+//        .background(
+//            RoundedRectangle(cornerRadius: 12)
+//                .fill(Color(.systemBackground))
+//                .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+//        )
     }
     
     private func toggleReaction(isLike: Bool) {
+        guard let currentUser = userService.currentUser else {
+            errorMessage = "Войдите, чтобы оставить реакцию"
+            return
+        }
+        
         isUpdating = true
         errorMessage = nil
         
         Task {
             do {
-                try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: isLike)
+                let result = try await reactionsService.toggleReaction(userId: currentUser.id, punchlineId: punchline.id, isLike: isLike)
+                try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: result.isLike, shouldAdd: result.add)
             } catch {
                 errorMessage = "Не удалось обновить реакцию"
                 print("Error toggling reaction: \(error)")
@@ -345,5 +360,7 @@ struct ShareSheet: UIViewControllerRepresentable {
         .environmentObject(AppService())
         .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(LocalFavoritesService())
+        .environmentObject(UserReactionsService())
         .preferredColorScheme(.dark)
 }

@@ -15,6 +15,7 @@ class UserService: ObservableObject {
     // MARK: - Properties
     private let auth = Auth.auth()
     private let db = Firestore.firestore()
+    private let reactionsService = UserReactionsService()
     
     @Published var currentUser: User?
     @Published var allUsers: [User] = []
@@ -61,6 +62,8 @@ class UserService: ObservableObject {
                 if let user = user {
                     print("👤 UserService: Auth state changed - user logged in with ID: \(user.uid)")
                     await self.fetchCurrentUser(userId: user.uid)
+                    // Sync reactions when user logs in
+                    await self.reactionsService.syncWithFirestore(userId: user.uid)
                 } else {
                     print("👤 UserService: Auth state changed - user logged out")
                     self.currentUser = nil

@@ -17,6 +17,8 @@ struct YourApp: App {
     @StateObject var appService = AppService()
     @StateObject var userService = UserService()
     @StateObject var jokeService = JokeService()
+    @StateObject var localFavoritesService = LocalFavoritesService()
+    @StateObject var reactionsService = UserReactionsService()
     @State private var isLoading = false
     
     init() {
@@ -32,6 +34,9 @@ struct YourApp: App {
                 .environmentObject(appService)
                 .environmentObject(userService)
                 .environmentObject(jokeService)
+                .environmentObject(localFavoritesService)
+                .environmentObject(reactionsService)
+                .preferredColorScheme(.dark)
         }
     }
 }
@@ -43,5 +48,7 @@ let db = Firestore.firestore()
         .environmentObject(AppService())
         .environmentObject(JokeService())
         .environmentObject(UserService())
+        .environmentObject(LocalFavoritesService())
+        .environmentObject(UserReactionsService())
         .preferredColorScheme(.dark)
 }

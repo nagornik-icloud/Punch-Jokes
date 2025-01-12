@@ -18,6 +18,9 @@ class JokeService: ObservableObject {
     @Published private(set) var isLoadingImages = false
     @Published private(set) var hasMoreJokes = true
     
+    // Store user reactions
+    private var userReactions: [String: String] = [:] // [punchlineId: "like"/"dislike"]
+    
     private var lastDocument: QueryDocumentSnapshot?
     private var preloadedJokes: [Joke] = []
     private var isPreloading = false
@@ -35,6 +38,12 @@ class JokeService: ObservableObject {
         if let timestamps = UserDefaults.standard.dictionary(forKey: "AuthorImagesTimestamps") as? [String: Date] {
             loadedImagesTimestamps = timestamps
             print("🟣 JokeService: Loaded \(timestamps.count) image timestamps")
+        }
+        
+        // Загружаем реакции пользователя
+        if let reactions = UserDefaults.standard.dictionary(forKey: "UserPunchlineReactions") as? [String: String] {
+            userReactions = reactions
+            print("🟣 JokeService: Loaded \(reactions.count) user reactions")
         }
         
         // Загружаем свежие данные с сервера в фоне
@@ -441,7 +450,7 @@ class JokeService: ObservableObject {
         LocalStorage.saveJokes(jokes)
     }
     
-    func togglePunchlineReaction(_ jokeId: String, _ punchlineId: String, isLike: Bool) async throws {
+    func togglePunchlineReaction(_ jokeId: String, _ punchlineId: String, isLike: Bool, shouldAdd: Bool) async throws {
         print("🟣 JokeService: Toggling \(isLike ? "like" : "dislike") for punchline \(punchlineId)")
         let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchlineId)
         
@@ -451,56 +460,43 @@ class JokeService: ObservableObject {
             return
         }
         
-        let punchline = jokes[jokeIndex].punchlines[punchlineIndex]
-        let currentLikes = punchline.likes
-        let currentDislikes = punchline.dislikes
-        
         var updates: [String: Any] = [:]
         
-        if isLike {
-            if currentLikes == 1 {
-                updates["likes"] = FieldValue.increment(Int64(-1))
-            } else {
+        if shouldAdd {
+            if isLike {
                 updates["likes"] = FieldValue.increment(Int64(1))
-                if currentDislikes == 1 {
-                    updates["dislikes"] = FieldValue.increment(Int64(-1))
-                }
-            }
-        } else {
-            if currentDislikes == 1 {
-                updates["dislikes"] = FieldValue.increment(Int64(-1))
             } else {
                 updates["dislikes"] = FieldValue.increment(Int64(1))
-                if currentLikes == 1 {
-                    updates["likes"] = FieldValue.increment(Int64(-1))
-                }
-            }
-        }
-        
-        // Обновляем в Firestore
-        try await punchlineRef.updateData(updates)
-        
-        // Обновляем локальное состояние
-        if isLike {
-            if currentLikes == 1 {
-                jokes[jokeIndex].punchlines[punchlineIndex].likes = 0
-            } else {
-                jokes[jokeIndex].punchlines[punchlineIndex].likes = 1
-                if currentDislikes == 1 {
-                    jokes[jokeIndex].punchlines[punchlineIndex].dislikes = 0
-                }
             }
         } else {
-            if currentDislikes == 1 {
-                jokes[jokeIndex].punchlines[punchlineIndex].dislikes = 0
+            if isLike {
+                updates["likes"] = FieldValue.increment(Int64(-1))
             } else {
-                jokes[jokeIndex].punchlines[punchlineIndex].dislikes = 1
-                if currentLikes == 1 {
-                    jokes[jokeIndex].punchlines[punchlineIndex].likes = 0
-                }
+                updates["dislikes"] = FieldValue.increment(Int64(-1))
             }
         }
         
+        // Update Firestore
+        try await punchlineRef.updateData(updates)
+        
+        // Update local state
+        var newPunchline = jokes[jokeIndex].punchlines[punchlineIndex]
+        
+        if shouldAdd {
+            if isLike {
+                newPunchline.likes += 1
+            } else {
+                newPunchline.dislikes += 1
+            }
+        } else {
+            if isLike {
+                newPunchline.likes -= 1
+            } else {
+                newPunchline.dislikes -= 1
+            }
+        }
+        
+        jokes[jokeIndex].punchlines[punchlineIndex] = newPunchline
         LocalStorage.saveJokes(jokes)
     }
     
