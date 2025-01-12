@@ -133,27 +133,19 @@ struct JokeCard: View {
                 
                 Button(action: {
                     guard !isUpdatingReaction else { return }
-                    Task {
-                        isUpdatingReaction = true
-                        defer { isUpdatingReaction = false }
-                        try? await jokeService.toggleJokeReaction(joke.id, isLike: true)
-                    }
+                    toggleReaction(isLike: true)
                 }) {
-                    Label("\(joke.likes)", systemImage: joke.likes > 0 ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .foregroundColor(joke.likes > 0 ? .blue : .gray)
+                    Label("\(joke.likes)", systemImage: reactionsService.getCurrentJokeReaction(for: joke.id) == "like" ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .foregroundColor(reactionsService.getCurrentJokeReaction(for: joke.id) == "like" ? .blue : .gray)
                         .opacity(isUpdatingReaction ? 0.5 : 1.0)
                 }
                 
                 Button(action: {
                     guard !isUpdatingReaction else { return }
-                    Task {
-                        isUpdatingReaction = true
-                        defer { isUpdatingReaction = false }
-                        try? await jokeService.toggleJokeReaction(joke.id, isLike: false)
-                    }
+                    toggleReaction(isLike: false)
                 }) {
-                    Label("\(joke.dislikes)", systemImage: joke.dislikes > 0 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .foregroundColor(joke.dislikes > 0 ? .red : .gray)
+                    Label("\(joke.dislikes)", systemImage: reactionsService.getCurrentJokeReaction(for: joke.id) == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .foregroundColor(reactionsService.getCurrentJokeReaction(for: joke.id) == "dislike" ? .red : .gray)
                         .opacity(isUpdatingReaction ? 0.5 : 1.0)
                 }
             }
@@ -243,6 +235,25 @@ struct JokeCard: View {
         }
     }
     
+    private func toggleReaction(isLike: Bool) {
+        guard let currentUser = userService.currentUser else {
+            // TODO: Show error message
+            return
+        }
+        
+        Task {
+            isUpdatingReaction = true
+            defer { isUpdatingReaction = false }
+            
+            do {
+                let result = try await reactionsService.toggleJokeReaction(userId: currentUser.id, jokeId: joke.id, isLike: isLike)
+                try await jokeService.toggleJokeReaction(joke.id, isLike: result.isLike, shouldAdd: result.add)
+            } catch {
+                print("Error toggling reaction: \(error)")
+            }
+        }
+    }
+    
     private func shareJoke() {
         let textToShare = """
         Setup: \(joke.setup)
@@ -273,7 +284,7 @@ struct PunchlineView: View {
     @State private var errorMessage: String?
     
     private var currentReaction: String? {
-        reactionsService.getCurrentReaction(for: punchline.id)
+        reactionsService.getCurrentPunchlineReaction(for: punchline.id)
     }
     
     var body: some View {
@@ -315,11 +326,6 @@ struct PunchlineView: View {
             }
         }
         .padding()
-//        .background(
-//            RoundedRectangle(cornerRadius: 12)
-//                .fill(Color(.systemBackground))
-//                .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
-//        )
     }
     
     private func toggleReaction(isLike: Bool) {
@@ -333,7 +339,7 @@ struct PunchlineView: View {
         
         Task {
             do {
-                let result = try await reactionsService.toggleReaction(userId: currentUser.id, punchlineId: punchline.id, isLike: isLike)
+                let result = try await reactionsService.togglePunchlineReaction(userId: currentUser.id, punchlineId: punchline.id, isLike: isLike)
                 try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: result.isLike, shouldAdd: result.add)
             } catch {
                 errorMessage = "Не удалось обновить реакцию"

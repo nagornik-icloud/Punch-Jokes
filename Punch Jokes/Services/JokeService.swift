@@ -388,7 +388,7 @@ class JokeService: ObservableObject {
         }
     }
     
-    func toggleJokeReaction(_ jokeId: String, isLike: Bool) async throws {
+    func toggleJokeReaction(_ jokeId: String, isLike: Bool, shouldAdd: Bool) async throws {
         print("🟣 JokeService: Toggling \(isLike ? "like" : "dislike") for joke \(jokeId)")
         let jokeRef = db.collection("jokes").document(jokeId)
         
@@ -397,56 +397,43 @@ class JokeService: ObservableObject {
             return
         }
         
-        let joke = jokes[index]
-        let currentLikes = joke.likes
-        let currentDislikes = joke.dislikes
-        
         var updates: [String: Any] = [:]
         
-        if isLike {
-            if currentLikes == 1 {
-                updates["likes"] = FieldValue.increment(Int64(-1))
-            } else {
+        if shouldAdd {
+            if isLike {
                 updates["likes"] = FieldValue.increment(Int64(1))
-                if currentDislikes == 1 {
-                    updates["dislikes"] = FieldValue.increment(Int64(-1))
-                }
-            }
-        } else {
-            if currentDislikes == 1 {
-                updates["dislikes"] = FieldValue.increment(Int64(-1))
             } else {
                 updates["dislikes"] = FieldValue.increment(Int64(1))
-                if currentLikes == 1 {
-                    updates["likes"] = FieldValue.increment(Int64(-1))
-                }
-            }
-        }
-        
-        // Обновляем в Firestore
-        try await jokeRef.updateData(updates)
-        
-        // Обновляем локальное состояние
-        if isLike {
-            if currentLikes == 1 {
-                jokes[index].likes = 0
-            } else {
-                jokes[index].likes = 1
-                if currentDislikes == 1 {
-                    jokes[index].dislikes = 0
-                }
             }
         } else {
-            if currentDislikes == 1 {
-                jokes[index].dislikes = 0
+            if isLike {
+                updates["likes"] = FieldValue.increment(Int64(-1))
             } else {
-                jokes[index].dislikes = 1
-                if currentLikes == 1 {
-                    jokes[index].likes = 0
-                }
+                updates["dislikes"] = FieldValue.increment(Int64(-1))
             }
         }
         
+        // Update Firestore
+        try await jokeRef.updateData(updates)
+        
+        // Update local state
+        var newJoke = jokes[index]
+        
+        if shouldAdd {
+            if isLike {
+                newJoke.likes += 1
+            } else {
+                newJoke.dislikes += 1
+            }
+        } else {
+            if isLike {
+                newJoke.likes -= 1
+            } else {
+                newJoke.dislikes -= 1
+            }
+        }
+        
+        jokes[index] = newJoke
         LocalStorage.saveJokes(jokes)
     }
     
