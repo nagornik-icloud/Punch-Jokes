@@ -28,66 +28,90 @@ struct AddJokeSheet: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
+    @EnvironmentObject var appService: AppService
     
     @State private var setup = ""
     @State private var punchline = ""
-    @State private var isLoading = false
-    @State private var showAlert = false
-    @State private var alertMessage = ""
+    
+    let titleOne: String = "Сетап"
+    let titleTwo: String
+    
+    var isPunchline: Bool {
+        self.joke != nil
+    }
+    
+    let joke: Joke?
     
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
                 Form {
-                    Section(header: Text("Начало шутки")) {
-                        TextEditor(text: $setup)
-                            .frame(height: 100)
+                    if !isPunchline {
+                        Section(header: Text(titleOne)) {
+                            TextEditor(text: $setup)
+                                .frame(height: 100)
+                        }
                     }
-                    
-                    Section(header: Text("Концовка")) {
+                    Section(header: Text(titleTwo)) {
                         TextEditor(text: $punchline)
                             .frame(height: 100)
                     }
                 }
                 
-//                Button(action: sendJoke) {
-//                    if isLoading {
-//                        ProgressView()
-//                            .tint(.white)
-//                    } else {
-//                        Text("Отправить на модерацию")
-//                            .fontWeight(.semibold)
-//                    }
-//                }
-//                .frame(maxWidth: .infinity)
-//                .padding()
-//                .background(
-//                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-//                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-//                    isLoading ? Color.blue.opacity(0.5) : Color.blue
-//                )
-//                .foregroundColor(.white)
-//                .clipShape(RoundedRectangle(cornerRadius: 15))
-//                .padding(.horizontal)
-//                .disabled(
-//                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-//                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-//                    isLoading
-//                )
+                Button {
+                    Task {
+                        if !isPunchline {
+                            try? await jokeService.addJoke(
+                                user: userService.currentUser,
+                                setup: setup,
+                                punchline: punchline
+                            )
+                        } else {
+                            try? await jokeService.addPunchline(
+                                toJokeId: joke!.id,
+                                text: punchline,
+                                authorId: userService.currentUser?.id
+                            )
+                        }
+                    }
+                } label: {
+                    if jokeService.isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Отправить на модерацию")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    jokeService.isLoading ? Color.blue.opacity(0.5) : Color.blue
+                )
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+                .padding(.horizontal)
+                .disabled(
+                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    jokeService.isLoading
+                )
             }
             .navigationTitle("Новая шутка")
-            .alert("Внимание", isPresented: $showAlert) {
+            .alert("Внимание", isPresented: $jokeService.showAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(alertMessage)
+                Text(jokeService.alertMessage)
             }
         }
     }
     
 //    private func sendJoke() {
 //        guard let currentUser = userService.currentUser else {
-//            alertMessage = "Необходимо войти в аккаунт"
-//            showAlert = true
+//            jokeService.alertMessage = "Необходимо войти в аккаунт"
+//            jokeService.showAlert = true
 //            return
 //        }
 //        
@@ -95,12 +119,16 @@ struct AddJokeSheet: View {
 //        
 //        Task {
 //            do {
-//                try await jokeService.addJoke(setup, punchline, author: currentUser.id)
+//                try await jokeService.addJoke(
+//                        setup: setup,
+//                        punchline: punchline,
+//                        authorId: currentUser.id
+//                    )
 //                isLoading = false
 //                dismiss()
 //            } catch {
-//                alertMessage = "Ошибка: \(error.localizedDescription)"
-//                showAlert = true
+//                jokeService.alertMessage = "Ошибка: \(error.localizedDescription)"
+//                jokeService.showAlert = true
 //            }
 //            isLoading = false
 //        }
@@ -218,7 +246,7 @@ struct SendJokeView: View {
             .appBackground()
             .navigationTitle("Мои шутки")
             .sheet(isPresented: $showAddJokeSheet) {
-                AddJokeSheet()
+                AddJokeSheet(titleTwo: "Панчлайн", joke: nil)
             }
         }
         .overlay(alignment: .topTrailing) {

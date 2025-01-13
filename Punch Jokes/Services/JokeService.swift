@@ -17,6 +17,8 @@ class JokeService: ObservableObject {
     @Published private(set) var isLoadingMore = false
     @Published private(set) var isLoadingImages = false
     @Published private(set) var hasMoreJokes = true
+    @Published var showAlert = false
+    @Published var alertMessage = ""
     
     // Store user reactions
     private var userReactions: [String: String] = [:] // [punchlineId: "like"/"dislike"]
@@ -355,18 +357,31 @@ class JokeService: ObservableObject {
     }
     
     // MARK: - Joke Operations
-    func addJoke(_ setup: String, authorId: String) async throws {
+    func addJoke(user: User?, setup: String, punchline: String) async throws {
+        if user == nil {
+            alertMessage = "Необходимо войти в аккаунт"
+            showAlert = true
+            return
+        }
+        isLoading = true
         let joke = Joke(
             id: UUID().uuidString,
             setup: setup,
-            status: "active",
-            authorId: authorId,
+            punchlines: [Punchline(
+                id: UUID().uuidString,
+                text: punchline,
+                status: "pending",
+                authorId: user!.id
+            )],
+            status: "pending",
+            authorId: user!.id,
             createdAt: Date()
         )
         
         let jokeRef = db.collection("jokes").document(joke.id)
         try await jokeRef.setData(from: joke)
         
+        isLoading = false
         // Обновляем локальное состояние
         jokes.insert(joke, at: 0)  // Добавляем в начало списка
         LocalStorage.saveJokes(jokes)
@@ -488,8 +503,14 @@ class JokeService: ObservableObject {
     }
     
     // MARK: - Punchline Operations
-    func addPunchline(to jokeId: String, text: String, authorId: String) async throws {
+    func addPunchline(toJokeId jokeId: String, text: String, authorId: String?) async throws {
         print("🟣 JokeService: Adding punchline to joke \(jokeId)")
+        guard let authorId = authorId else {
+            showAlert = true
+            alertMessage = "Необходимо войти в аккаунт"
+            return
+        }
+        isLoading = true
         let punchline = Punchline(
             id: UUID().uuidString,
             text: text,
@@ -509,6 +530,7 @@ class JokeService: ObservableObject {
             LocalStorage.saveJokes(jokes)
             print("🟣 JokeService: Successfully added punchline \(punchline.id) to joke \(jokeId)")
         }
+        isLoading = false
     }
     
     func updatePunchlineStatus(_ jokeId: String, _ punchlineId: String, status: String) async throws {

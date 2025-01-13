@@ -47,7 +47,6 @@ class AppService: ObservableObject {
     @Published var isInitializing = true
     
     
-    
     func closeAccScreen() {
         shownScreen = lastScreen
         showTabBar = true

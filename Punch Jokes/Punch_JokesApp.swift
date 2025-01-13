@@ -19,10 +19,9 @@ struct YourApp: App {
     @StateObject var jokeService = JokeService()
     @StateObject var localFavoritesService = LocalFavoritesService()
     @StateObject var reactionsService = UserReactionsService()
-    @State private var isLoading = false
     
     init() {
-        // Инициализация Firebase
+        
         FirebaseApp.configure()
         LocalStorage.setupDirectories()
         
@@ -39,9 +38,8 @@ struct YourApp: App {
                 .preferredColorScheme(.dark)
         }
     }
+    
 }
-
-let db = Firestore.firestore()
 
 #Preview {
     TabBarView()
@@ -51,4 +49,9 @@ let db = Firestore.firestore()
         .environmentObject(LocalFavoritesService())
         .environmentObject(UserReactionsService())
         .preferredColorScheme(.dark)
+}
+
+func hapticFeedback() {
+    let generator = UIImpactFeedbackGenerator(style: .medium)
+    generator.impactOccurred()
 }

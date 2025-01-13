@@ -16,13 +16,13 @@ struct JokeCard: View {
     @EnvironmentObject var localFavorites: LocalFavoritesService
     @EnvironmentObject var reactionsService: UserReactionsService
     
-    @Environment(\.colorScheme) var colorScheme
-    
     let joke: Joke
     
     @State private var isExpanded = false
     @State private var isSavingFavorite = false
     @State private var isUpdatingReaction = false
+    
+    @State var addPunchline = false
     
     private var authorUsername: String {
         if userService.isLoading {
@@ -62,6 +62,9 @@ struct JokeCard: View {
                 try? await jokeService.incrementJokeViews(joke.id)
             }
         }
+        .sheet(isPresented: $addPunchline) {
+            AddJokeSheet(titleTwo: "Панчлайн", joke: joke)
+        }
     }
     
     private var mainCard: some View {
@@ -86,9 +89,9 @@ struct JokeCard: View {
         .background(Color.gray.opacity(0.01))
         .onTapGesture {
             hapticFeedback()
-            withAnimation {
+//            withAnimation {
                 isExpanded.toggle()
-            }
+//            }
         }
     }
     
@@ -157,6 +160,15 @@ struct JokeCard: View {
                     ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
                         PunchlineView(punchline: punchline, jokeId: joke.id)
                     }
+                    
+                    HStack {
+                        Spacer()
+                        GradientButton(name: "Добавить панчлайн", width: 200.0) {
+                            addPunchline = true
+                        }
+                        Spacer()
+                    }
+                    .padding(0)
                 }
                 .padding(.top, 8)
             }
@@ -194,13 +206,6 @@ struct JokeCard: View {
                 .font(.system(size: 16))
                 .foregroundColor(.gray)
         }
-    }
-    
-    
-    
-    private func hapticFeedback() {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
     }
     
     private func toggleFavorite() {
@@ -256,8 +261,8 @@ struct JokeCard: View {
     
     private func shareJoke() {
         let textToShare = """
-        Setup: \(joke.setup)
-        Punchlines:
+        \(joke.setup)
+        
         \(joke.punchlines.map { "- \($0.text)" }.joined(separator: "\n"))
         """
         
