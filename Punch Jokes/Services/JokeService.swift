@@ -12,7 +12,7 @@ class JokeService: ObservableObject {
     
     @Published private(set) var jokes: [Joke] = []
     @Published var authorImages: [String: UIImage] = [:]
-    @Published private(set) var error: Error?
+    @Published var error: Error?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var isLoadingImages = false
@@ -34,28 +34,59 @@ class JokeService: ObservableObject {
     init() {
         print("🟣 ==========================================")
         print("🟣 JokeService: Initializing...")
-        loadCachedData()
-        
-        // Загружаем временные метки изображений
-        if let timestamps = UserDefaults.standard.dictionary(forKey: "AuthorImagesTimestamps") as? [String: Date] {
-            loadedImagesTimestamps = timestamps
-            print("🟣 JokeService: Loaded \(timestamps.count) image timestamps")
-        }
-        
-        // Загружаем реакции пользователя
-        if let reactions = UserDefaults.standard.dictionary(forKey: "UserPunchlineReactions") as? [String: String] {
-            userReactions = reactions
-            print("🟣 JokeService: Loaded \(reactions.count) user reactions")
-        }
-        
-        // Загружаем свежие данные с сервера в фоне
         Task {
             isLoading = true
-            await loadInitialData()
+            await loadData()
             isLoading = false
         }
         print("🟣 JokeService: Initialization complete")
         print("🟣 ==========================================")
+    }
+    
+    func loadData() async {
+        print("🟣 JokeService: Starting data load")
+        loadCachedData()
+        do {
+            let snapshot = try await db.collection("jokes")
+                .order(by: "createdAt", descending: true)
+                .limit(to: pageSize)
+                .getDocuments()
+            
+            print("🟣 JokeService: Retrieved \(snapshot.documents.count) joke documents")
+            
+            var fetchedJokes: [Joke] = []
+            for document in snapshot.documents {
+                if let joke = try? await fetchJokeWithPunchlines(from: document) {
+                    fetchedJokes.append(joke)
+                    print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
+                }
+            }
+            
+            if jokes != fetchedJokes {
+                lastDocument = snapshot.documents.last
+                hasMoreJokes = !snapshot.documents.isEmpty
+                jokes = fetchedJokes
+                LocalStorage.saveJokes(fetchedJokes)
+                print("🟣 JokeService: Updated jokes array with \(fetchedJokes.count) jokes")
+                
+                // Начинаем предзагрузку следующей страницы
+                Task {
+                    await preloadNextPage()
+                }
+                
+                // Загружаем изображения сразу после обновления шуток
+                print("🟣 JokeService: Starting image loading after jokes update")
+                isLoadingImages = true
+                await loadAllAuthorImages()
+                isLoadingImages = false
+                print("🟣 JokeService: Completed image loading after jokes update")
+            } else {
+                print("🟣 JokeService: No changes in jokes data")
+            }
+        } catch {
+            print("🟣 JokeService: Error loading initial data: \(error)")
+            self.error = error
+        }
     }
     
     private func loadCachedData() {
@@ -174,51 +205,6 @@ class JokeService: ObservableObject {
     }
     
     // MARK: - Data Loading
-    func loadInitialData() async {
-        print("🟣 JokeService: Starting initial data load")
-        do {
-            let snapshot = try await db.collection("jokes")
-                .order(by: "createdAt", descending: true)
-                .limit(to: pageSize)
-                .getDocuments()
-            
-            print("🟣 JokeService: Retrieved \(snapshot.documents.count) joke documents")
-            
-            var fetchedJokes: [Joke] = []
-            for document in snapshot.documents {
-                if let joke = try? await fetchJokeWithPunchlines(from: document) {
-                    fetchedJokes.append(joke)
-                    print("🟣 JokeService: Successfully decoded joke: \(joke.id) with \(joke.punchlines.count) punchlines")
-                }
-            }
-            
-            if jokes != fetchedJokes {
-                lastDocument = snapshot.documents.last
-                hasMoreJokes = !snapshot.documents.isEmpty
-                jokes = fetchedJokes
-                LocalStorage.saveJokes(fetchedJokes)
-                print("🟣 JokeService: Updated jokes array with \(fetchedJokes.count) jokes")
-                
-                // Начинаем предзагрузку следующей страницы
-                Task {
-                    await preloadNextPage()
-                }
-                
-                // Загружаем изображения сразу после обновления шуток
-                print("🟣 JokeService: Starting image loading after jokes update")
-                isLoadingImages = true
-                await loadAllAuthorImages()
-                isLoadingImages = false
-                print("🟣 JokeService: Completed image loading after jokes update")
-            } else {
-                print("🟣 JokeService: No changes in jokes data")
-            }
-        } catch {
-            print("🟣 JokeService: Error loading initial data: \(error)")
-            self.error = error
-        }
-    }
-    
     private func preloadNextPage() async {
         guard !isPreloading, hasMoreJokes, let lastDocument = lastDocument else { return }
         

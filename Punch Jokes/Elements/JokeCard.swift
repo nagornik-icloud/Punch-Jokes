@@ -53,7 +53,15 @@ struct JokeCard: View {
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(Color.gray.opacity(0.2), lineWidth: 2)
                 )
-                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+                .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 4)
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .onTapGesture {
+                    hapticFeedback()
+        //            withAnimation {
+                        isExpanded.toggle()
+        //            }
+                }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
         .onAppear {
@@ -70,29 +78,53 @@ struct JokeCard: View {
     private var mainCard: some View {
         HStack {
             VStack(alignment: .leading) {
-                jokeContent
-                Spacer()
-                HStack {
-                    authorImage
-                    authorAndDate
+            jokeContent
+            HStack {
+                authorImage
+                authorAndDate
+            }
+                if isExpanded {
+                    expandedCard
                 }
+                
             }
             Spacer()
-            VStack {
-                heartIcon
-                Spacer()
-                shareButton
-            }
-            .padding(4)
         }
         .padding()
-        .background(Color.gray.opacity(0.01))
-        .onTapGesture {
-            hapticFeedback()
-//            withAnimation {
-                isExpanded.toggle()
-//            }
+        .overlay(content: {
+            HStack {
+                Spacer()
+                VStack(alignment: .trailing) {
+                    heartIcon
+                    Spacer()
+                    shareButton
+                }
+            }
+            .padding()
+//            .frame(maxWidth: .infinity)
+        })
+//        .frame(maxWidth: .infinity)
+        
+    }
+    
+    private var expandedCard: some View {
+        // Панчлайны
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
+                PunchlineView(punchline: punchline, jokeId: joke.id)
+            }
+            
+            HStack {
+                Spacer()
+                GradientButton(name: "Добавить панчлайн", width: 200.0) {
+                    addPunchline = true
+                }
+                Spacer()
+            }
+            .padding(0)
         }
+        .padding(.top, 8)
+        
     }
     
     private var authorImage: some View {
@@ -128,6 +160,7 @@ struct JokeCard: View {
                 .foregroundColor(.primary)
                 .fontWeight(.medium)
                 .lineSpacing(4)
+                .padding(.trailing, 25)
             
             // Статистика шутки
             HStack(spacing: 16) {
@@ -154,24 +187,7 @@ struct JokeCard: View {
             }
             .font(.caption)
             
-            if isExpanded {
-                // Панчлайны
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
-                        PunchlineView(punchline: punchline, jokeId: joke.id)
-                    }
-                    
-                    HStack {
-                        Spacer()
-                        GradientButton(name: "Добавить панчлайн", width: 200.0) {
-                            addPunchline = true
-                        }
-                        Spacer()
-                    }
-                    .padding(0)
-                }
-                .padding(.top, 8)
-            }
+            
         }
     }
     
@@ -367,7 +383,18 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 // MARK: - Full Screen Preview
 #Preview("Full Screen") {
-    TabBarView()
+//    JokeCard(joke: Joke(id: "123", setup: "Setup Setup Setup Setup?", status: "approved", authorId: "123123123", createdAt: Date()))
+    JokeCard(
+        joke: Joke(
+            id: "123",
+            setup: "Setup Setup Setup Setup S S S S S S S S S S S S S S ?",
+            punchlines: [Punchline(id: "123", text: "Punch punch punch", status: "approved", authorId: "123123123")],
+            status: "approved",
+            authorId: "123123123",
+            createdAt: Date()
+        )
+    )
+//    TabBarView()
         .environmentObject(AppService())
         .environmentObject(JokeService())
         .environmentObject(UserService())

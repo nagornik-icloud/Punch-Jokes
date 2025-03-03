@@ -61,7 +61,7 @@ struct FavoritesView: View {
             .navigationTitle("Избранное")
             .refreshable {
                 Task {
-                    await jokeService.loadInitialData()
+                    await jokeService.loadData()
                     await userService.loadInitialData()
                 }
             }

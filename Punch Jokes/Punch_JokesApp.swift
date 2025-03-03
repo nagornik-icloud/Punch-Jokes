@@ -24,7 +24,7 @@ struct YourApp: App {
         
         FirebaseApp.configure()
         LocalStorage.setupDirectories()
-        
+
     }
     
     var body: some Scene {

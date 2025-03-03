@@ -44,6 +44,7 @@ struct GradientButton: View {
 //        .frame(width: 165, height: 62) // Ensure everything aligns
         .onTapGesture {
             withAnimation(.spring(duration: 0.5)) {
+                hapticFeedback()
                 isPressed = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isPressed = false

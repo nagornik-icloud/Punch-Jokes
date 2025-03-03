@@ -54,8 +54,8 @@ struct TabBarView: View {
     var body: some View {
         ZStack {
             // Фоновый градиент
-            backgroundGradient
-                .ignoresSafeArea()
+//            backgroundGradient
+//                .ignoresSafeArea()
             
             if userService.isLoading || jokeService.isLoading {
                 LoadingView()

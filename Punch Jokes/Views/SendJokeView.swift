@@ -32,6 +32,19 @@ struct AddJokeSheet: View {
     
     @State private var setup = ""
     @State private var punchline = ""
+    @State private var isLoading = false
+    
+    var block: Bool {
+        if self.joke == nil {
+            setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            jokeService.isLoading
+        } else {
+            punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            jokeService.isLoading
+        }
+        
+    }
     
     let titleOne: String = "Сетап"
     let titleTwo: String
@@ -44,62 +57,73 @@ struct AddJokeSheet: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                Form {
-                    if !isPunchline {
-                        Section(header: Text(titleOne)) {
-                            TextEditor(text: $setup)
+            ZStack {
+                VStack(spacing: 20) {
+                    
+                    if isPunchline {
+                        Text(joke?.setup ?? "joke.setup")
+                    }
+                    
+                    Form {
+                        if !isPunchline {
+                            Section(header: Text(titleOne)) {
+                                TextEditor(text: $setup)
+                                    .frame(height: 100)
+                            }
+                        }
+                        Section(header: Text(titleTwo)) {
+                            TextEditor(text: $punchline)
                                 .frame(height: 100)
                         }
                     }
-                    Section(header: Text(titleTwo)) {
-                        TextEditor(text: $punchline)
-                            .frame(height: 100)
-                    }
-                }
-                
-                Button {
-                    Task {
-                        if !isPunchline {
-                            try? await jokeService.addJoke(
-                                user: userService.currentUser,
-                                setup: setup,
-                                punchline: punchline
-                            )
+                    
+                    Button {
+                        isLoading = true
+                        Task {
+                            if !isPunchline {
+                                try? await jokeService.addJoke(
+                                    user: userService.currentUser,
+                                    setup: setup,
+                                    punchline: punchline
+                                )
+                            } else {
+                                try? await jokeService.addPunchline(
+                                    toJokeId: joke!.id,
+                                    text: punchline,
+                                    authorId: userService.currentUser?.id
+                                )
+                            }
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: {
+                            dismiss.callAsFunction()
+                        })
+                    } label: {
+                        if jokeService.isLoading {
+                            ProgressView()
+                                .tint(.white)
                         } else {
-                            try? await jokeService.addPunchline(
-                                toJokeId: joke!.id,
-                                text: punchline,
-                                authorId: userService.currentUser?.id
-                            )
+                            Text("Отправить на модерацию")
+                                .fontWeight(.semibold)
                         }
                     }
-                } label: {
-                    if jokeService.isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Отправить на модерацию")
-                            .fontWeight(.semibold)
-                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(
+                        block ? Color.gray.opacity(0.5) : Color.blue
+                    )
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
+                    .padding(.horizontal)
+                    .disabled(
+                        block
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    jokeService.isLoading ? Color.blue.opacity(0.5) : Color.blue
-                )
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 15))
-                .padding(.horizontal)
-                .disabled(
-                    setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    punchline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    jokeService.isLoading
-                )
+                if isLoading {
+                    Color.black.opacity(0.6)
+                    Text("Отправлено")
+                }
             }
-            .navigationTitle("Новая шутка")
+            .navigationTitle(isPunchline ? "Добавить панчлайн" : "Новая шутка")
             .alert("Внимание", isPresented: $jokeService.showAlert) {
                 Button("OK", role: .cancel) {}
             } message: {

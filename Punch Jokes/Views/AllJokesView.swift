@@ -40,36 +40,43 @@ struct AllJokesView: View {
                         description: Text("Пока нет одобренных шуток")
                     )
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 16) {
-                            ForEach(Array(sortedJokes.enumerated()), id: \.element.id) { index, joke in
-                                JokeCard(joke: joke)
-                                    .padding(.horizontal)
-                                    .onAppear {
-                                        // Проверяем, нужно ли загрузить следующую страницу
-                                        if index == sortedJokes.count - 5 {
-                                            Task {
-                                                await jokeService.loadMoreJokes()
+                    ScrollViewReader { value in
+                        ScrollView {
+                            LazyVStack(spacing: 16) {
+                                ForEach(Array(sortedJokes.enumerated()), id: \.element.id) { index, joke in
+                                    JokeCard(joke: joke)
+                                        .id(index)
+                                        .padding(.horizontal)
+                                        .onAppear {
+                                            // Проверяем, нужно ли загрузить следующую страницу
+                                            if index == sortedJokes.count - 5 {
+                                                Task {
+                                                    await jokeService.loadMoreJokes()
+                                                }
                                             }
+                                            // Проверяем, нужно ли начать предзагрузку
+                                            jokeService.checkPreloadNeeded(currentIndex: index)
                                         }
-                                        // Проверяем, нужно ли начать предзагрузку
-                                        jokeService.checkPreloadNeeded(currentIndex: index)
-                                    }
+                                        .onTapGesture {
+                                            value.scrollTo(index)
+                                        }
+                                }
+                                
+                                if jokeService.isLoadingMore {
+                                    ProgressView()
+                                        .padding()
+                                }
                             }
-                            
-                            if jokeService.isLoadingMore {
-                                ProgressView()
-                                    .padding()
-                            }
+                            .padding(.vertical)
+                            Color.clear
+                                .frame(height: 100)
                         }
-                        .padding(.vertical)
-                        Color.clear
-                            .frame(height: 100)
+                        .appBackground()
+                        .scrollIndicators(.hidden)
                     }
-                    .appBackground()
                 }
             }
-            .scrollContentBackground(.hidden)
+//            .scrollContentBackground(.hidden)
             .background(Color.clear)
             .navigationTitle("Все шутки")
             .refreshable {
@@ -91,7 +98,7 @@ struct AllJokesView: View {
     func refreshJokes() async {
         do {
             print("Refreshing jokes...")
-            await jokeService.loadInitialData()
+            await jokeService.loadData()
             await userService.loadInitialData()
             print("Jokes refreshed, count: \(jokeService.jokes.count)")
         } catch {
