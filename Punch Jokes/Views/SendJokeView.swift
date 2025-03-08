@@ -167,6 +167,8 @@ struct SendJokeView: View {
     @State private var showAddJokeSheet = false
     @Environment(\.colorScheme) var colorScheme
     
+    @State private var expandedJokeId: String? = nil
+    
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -254,7 +256,10 @@ struct SendJokeView: View {
                                             JokeStatusView(status: joke.status)
                                         }
                                         
-                                        JokeCard(joke: joke)
+                                        JokeCard(
+                                            joke: joke,
+                                            expandedJokeId: $expandedJokeId
+                                        )
                                     }
                                     .padding(.horizontal)
                                 }

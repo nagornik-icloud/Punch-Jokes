@@ -1,10 +1,3 @@
-//
-//  JokeCard.swift
-//  Punch Jokes
-//
-//  Created by Anton Nagornyi on 15.12.24..
-//
-
 import SwiftUI
 import UIKit
 import Firebase
@@ -17,18 +10,21 @@ struct JokeCard: View {
     @EnvironmentObject var reactionsService: UserReactionsService
     
     let joke: Joke
+    @Binding var expandedJokeId: String?
     
-    @State private var isExpanded = false
     @State private var isSavingFavorite = false
     @State private var isUpdatingReaction = false
-    
     @State var addPunchline = false
+    
+    private var isExpanded: Bool {
+        expandedJokeId == joke.id
+    }
     
     private var authorUsername: String {
         if userService.isLoading {
-            return "Загрузка..."
+            return NSLocalizedString("loading", comment: "Loading")
         }
-        return userService.userNameCache[joke.authorId] ?? "Пользователь"
+        return userService.userNameCache[joke.authorId] ?? NSLocalizedString("user", comment: "User")
     }
     
     private let dateFormatter: DateFormatter = {
@@ -58,35 +54,37 @@ struct JokeCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .onTapGesture {
                     hapticFeedback()
-        //            withAnimation {
-                        isExpanded.toggle()
-        //            }
+                    withAnimation {
+                        if isExpanded {
+                            expandedJokeId = nil
+                        } else {
+                            expandedJokeId = joke.id
+                        }
+                    }
                 }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
         .onAppear {
-            // Увеличиваем счетчик просмотров при появлении карточки
             Task {
                 try? await jokeService.incrementJokeViews(joke.id)
             }
         }
         .sheet(isPresented: $addPunchline) {
-            AddJokeSheet(titleTwo: "Панчлайн", joke: joke)
+            AddJokeSheet(titleTwo: NSLocalizedString("punchline", comment: "Punchline"), joke: joke)
         }
     }
     
     private var mainCard: some View {
         HStack {
             VStack(alignment: .leading) {
-            jokeContent
-            HStack {
-                authorImage
-                authorAndDate
-            }
+                jokeContent
+                HStack {
+                    authorImage
+                    authorAndDate
+                }
                 if isExpanded {
                     expandedCard
                 }
-                
             }
             Spacer()
         }
@@ -101,14 +99,10 @@ struct JokeCard: View {
                 }
             }
             .padding()
-//            .frame(maxWidth: .infinity)
         })
-//        .frame(maxWidth: .infinity)
-        
     }
     
     private var expandedCard: some View {
-        // Панчлайны
         VStack(alignment: .leading, spacing: 12) {
             ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
                 PunchlineView(punchline: punchline, jokeId: joke.id)
@@ -116,7 +110,7 @@ struct JokeCard: View {
             
             HStack {
                 Spacer()
-                GradientButton(name: "Добавить панчлайн", width: 200.0) {
+                GradientButton(name: NSLocalizedString("add_punchline", comment: "Add Punchline"), width: 200.0) {
                     addPunchline = true
                 }
                 Spacer()
@@ -124,7 +118,6 @@ struct JokeCard: View {
             .padding(0)
         }
         .padding(.top, 8)
-        
     }
     
     private var authorImage: some View {
@@ -148,13 +141,10 @@ struct JokeCard: View {
         }
         .frame(width: 20, height: 20)
         .clipShape(Circle())
-//        .animation(.easeInOut, value: jokeService.authorImages[joke.authorId] != nil)
-//        .animation(.easeInOut, value: jokeService.isLoadingImages)
     }
     
     var jokeContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Setup
             Text(joke.setup)
                 .font(.body)
                 .foregroundColor(.primary)
@@ -162,7 +152,6 @@ struct JokeCard: View {
                 .lineSpacing(4)
                 .padding(.trailing, 25)
             
-            // Статистика шутки
             HStack(spacing: 16) {
                 Label("\(joke.views)", systemImage: "eye")
                     .foregroundColor(.gray)
@@ -186,8 +175,6 @@ struct JokeCard: View {
                 }
             }
             .font(.caption)
-            
-            
         }
     }
     
@@ -231,7 +218,6 @@ struct JokeCard: View {
         Task {
             do {
                 if let currentUser = userService.currentUser {
-                    // Для авторизованного пользователя
                     var favorites = currentUser.favouriteJokesIDs ?? []
                     if favorites.contains(joke.id) {
                         favorites.removeAll { $0 == joke.id }
@@ -241,7 +227,6 @@ struct JokeCard: View {
                     currentUser.favouriteJokesIDs = favorites
                     try await userService.saveUserToFirestore()
                 } else {
-                    // Для неавторизованного пользователя
                     if localFavorites.contains(joke.id) {
                         localFavorites.removeFavoriteJoke(joke.id)
                     } else {
@@ -258,7 +243,6 @@ struct JokeCard: View {
     
     private func toggleReaction(isLike: Bool) {
         guard let currentUser = userService.currentUser else {
-            // TODO: Show error message
             return
         }
         
@@ -314,7 +298,6 @@ struct PunchlineView: View {
                 .font(.headline)
                 .foregroundColor(.purple)
                 .fontWeight(.medium)
-                .lineSpacing(4)
             
             Spacer()
             
@@ -351,7 +334,7 @@ struct PunchlineView: View {
     
     private func toggleReaction(isLike: Bool) {
         guard let currentUser = userService.currentUser else {
-            errorMessage = "Войдите, чтобы оставить реакцию"
+            errorMessage = NSLocalizedString("login_to_react", comment: "Login to react")
             return
         }
         
@@ -363,7 +346,7 @@ struct PunchlineView: View {
                 let result = try await reactionsService.togglePunchlineReaction(userId: currentUser.id, punchlineId: punchline.id, isLike: isLike)
                 try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: result.isLike, shouldAdd: result.add)
             } catch {
-                errorMessage = "Не удалось обновить реакцию"
+                errorMessage = NSLocalizedString("reaction_update_failed", comment: "Failed to update reaction")
                 print("Error toggling reaction: \(error)")
             }
             isUpdating = false
@@ -383,7 +366,6 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 // MARK: - Full Screen Preview
 #Preview("Full Screen") {
-//    JokeCard(joke: Joke(id: "123", setup: "Setup Setup Setup Setup?", status: "approved", authorId: "123123123", createdAt: Date()))
     JokeCard(
         joke: Joke(
             id: "123",
@@ -392,13 +374,13 @@ struct ShareSheet: UIViewControllerRepresentable {
             status: "approved",
             authorId: "123123123",
             createdAt: Date()
-        )
+        ),
+        expandedJokeId: .constant(nil)
     )
-//    TabBarView()
-        .environmentObject(AppService())
-        .environmentObject(JokeService())
-        .environmentObject(UserService())
-        .environmentObject(LocalFavoritesService())
-        .environmentObject(UserReactionsService())
-        .preferredColorScheme(.dark)
+    .environmentObject(AppService())
+    .environmentObject(JokeService())
+    .environmentObject(UserService())
+    .environmentObject(LocalFavoritesService())
+    .environmentObject(UserReactionsService())
+    .preferredColorScheme(.dark)
 }

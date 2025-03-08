@@ -1,7 +1,7 @@
 import Foundation
 import FirebaseFirestore
 
-struct Punchline: Identifiable, Codable, Equatable {
+struct Punchline: Identifiable, Codable, Equatable, Hashable {
     var id: String = ""
     var text: String = ""
     var likes: Int = 0
@@ -33,7 +33,7 @@ struct Punchline: Identifiable, Codable, Equatable {
     }
 }
 
-struct Joke: Identifiable, Codable, Equatable {
+struct Joke: Identifiable, Codable, Equatable, Hashable {
     var id: String = ""
     var setup: String = ""
     var punchlines: [Punchline] = []

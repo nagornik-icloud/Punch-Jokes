@@ -13,6 +13,8 @@ struct FavoritesView: View {
     @EnvironmentObject var userService: UserService
     @StateObject private var localFavorites = LocalFavoritesService()
     
+    @State private var expandedJokeId: String? = nil
+    
     var favoriteJokes: [Joke] {
         let jokes: [Joke]
         if let currentUser = userService.currentUser,
@@ -49,7 +51,10 @@ struct FavoritesView: View {
                 } else {
                     LazyVStack(spacing: 16) {
                         ForEach(favoriteJokes) { joke in
-                            JokeCard(joke: joke)
+                            JokeCard(
+                                joke: joke,
+                                expandedJokeId: $expandedJokeId
+                            )
                         }
                     }
                     .padding()

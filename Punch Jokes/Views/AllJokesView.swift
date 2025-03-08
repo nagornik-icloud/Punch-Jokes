@@ -1,10 +1,3 @@
-//
-//  AllJokesView.swift
-//  Punch Jokes
-//
-//  Created by Anton Nagornyi on 16.12.24..
-//
-
 import SwiftUI
 
 struct AllJokesView: View {
@@ -17,6 +10,7 @@ struct AllJokesView: View {
     
     @State var showError = false
     @State var errorMessage = ""
+    @State private var expandedJokeId: String? = nil
     
     var sortedJokes: [Joke] {
         jokeService.jokes
@@ -30,62 +24,86 @@ struct AllJokesView: View {
                 if jokeService.isLoading {
                     VStack(spacing: 16) {
                         ProgressView()
-                        Text("Загружаем шутки...")
+                        Text(LocalizedStringKey("loading_jokes"))
                             .foregroundColor(.gray)
                     }
                     .padding()
                 } else if sortedJokes.isEmpty {
-                    ContentUnavailableView("Нет шуток",
+                    ContentUnavailableView(LocalizedStringKey("no_jokes"),
                         systemImage: "text.bubble",
-                        description: Text("Пока нет одобренных шуток")
+                        description: Text(LocalizedStringKey("no_approved_jokes"))
                     )
                 } else {
-                    ScrollViewReader { value in
+                    
+                    ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(spacing: 16) {
-                                ForEach(Array(sortedJokes.enumerated()), id: \.element.id) { index, joke in
-                                    JokeCard(joke: joke)
-                                        .id(index)
+                            LazyVStack(spacing: 16) { // Use LazyVStack
+                                ForEach(sortedJokes) { joke in
+                                    JokeCard(joke: joke, expandedJokeId: $expandedJokeId)
                                         .padding(.horizontal)
-                                        .onAppear {
-                                            // Проверяем, нужно ли загрузить следующую страницу
-                                            if index == sortedJokes.count - 5 {
-                                                Task {
-                                                    await jokeService.loadMoreJokes()
+                                        .id(joke.id) // Ensure ID is non-optional & unique
+                                        .highPriorityGesture(
+                                            TapGesture()
+                                                .onEnded { _ in
+                                                    print("Tapped joke ID: \(joke.id)")
+                                                    if expandedJokeId == joke.id {
+                                                        expandedJokeId = nil
+                                                    } else {
+                                                        expandedJokeId = joke.id
+                                                        
+                                                        DispatchQueue.main.async { // Ensures the view is updated before scrolling
+                                                            print("Scrolling to joke ID: \(joke.id)")
+                                                            withAnimation(.spring(response: 0.8, dampingFraction: 0.5, blendDuration: 0.5)) {
+                                                                proxy
+                                                                    .scrollTo(
+                                                                        joke.id,
+                                                                        anchor: .top
+                                                                    )
+                                                            }
+                                                        }
+                                                        
+                                                        
+                                                    }
                                                 }
-                                            }
-                                            // Проверяем, нужно ли начать предзагрузку
-                                            jokeService.checkPreloadNeeded(currentIndex: index)
-                                        }
-                                        .onTapGesture {
-                                            value.scrollTo(index)
-                                        }
+                                        )
+//                                        .onTapGesture {
+//                                            print("Tapped joke ID: \(joke.id)")
+//                                            if expandedJokeId == joke.id {
+//                                                expandedJokeId = nil
+//                                            } else {
+//                                                expandedJokeId = joke.id
+//                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { // Ensures the view is updated before scrolling
+//                                                    print("Scrolling to joke ID: \(joke.id)")
+//                                                    proxy
+//                                                        .scrollTo(
+//                                                            joke.id,
+//                                                            anchor: .center
+//                                                        )
+//                                                }
+//                                            }
+//                                        }
                                 }
-                                
+
                                 if jokeService.isLoadingMore {
                                     ProgressView()
                                         .padding()
                                 }
                             }
                             .padding(.vertical)
-                            Color.clear
-                                .frame(height: 100)
                         }
-                        .appBackground()
+//                        .appBackground()
                         .scrollIndicators(.hidden)
                     }
+
+                    
                 }
             }
-//            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .navigationTitle("Все шутки")
+//            .background(Color.clear)
+            .navigationTitle(LocalizedStringKey("all_jokes"))
             .refreshable {
                 Task {
                     await refreshJokes()
                 }
-            }
-            .onAppear {
-                print("AllJokesView appeared, jokes count: \(jokeService.jokes.count)")
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -109,7 +127,7 @@ struct AllJokesView: View {
 }
 
 #Preview {
-    AllJokesView()
+    TabBarView()
         .environmentObject(JokeService())
         .environmentObject(UserService())
         .environmentObject(AppService())
