@@ -14,12 +14,12 @@ class UserReactionsService: ObservableObject {
     private func loadFromUserDefaults() {
         if let savedPunchlineReactions = UserDefaults.standard.dictionary(forKey: "UserPunchlineReactions") as? [String: String] {
             punchlineReactions = savedPunchlineReactions
-            print("👍 UserReactionsService: Loaded \(savedPunchlineReactions.count) punchline reactions from UserDefaults")
+            print("👍 [\(Date())] UserReactionsService: Loaded \(savedPunchlineReactions.count) punchline reactions from UserDefaults")
         }
         
         if let savedJokeReactions = UserDefaults.standard.dictionary(forKey: "UserJokeReactions") as? [String: String] {
             jokeReactions = savedJokeReactions
-            print("👍 UserReactionsService: Loaded \(savedJokeReactions.count) joke reactions from UserDefaults")
+            print("👍 [\(Date())] UserReactionsService: Loaded \(savedJokeReactions.count) joke reactions from UserDefaults")
         }
     }
     
@@ -42,53 +42,53 @@ class UserReactionsService: ObservableObject {
             if let data = document.data() {
                 if let punchlineReactionsData = data["punchlineReactions"] as? [String: String] {
                     punchlineReactions = punchlineReactionsData
-                    print("👍 UserReactionsService: Loaded \(punchlineReactionsData.count) punchline reactions from Firestore")
+                    print("👍 [\(Date())] UserReactionsService: Loaded \(punchlineReactionsData.count) punchline reactions from Firestore")
                 }
                 if let jokeReactionsData = data["jokeReactions"] as? [String: String] {
                     jokeReactions = jokeReactionsData
-                    print("👍 UserReactionsService: Loaded \(jokeReactionsData.count) joke reactions from Firestore")
+                    print("👍 [\(Date())] UserReactionsService: Loaded \(jokeReactionsData.count) joke reactions from Firestore")
                 }
                 saveToUserDefaults()
             }
         } catch {
-            print("👍 UserReactionsService: Error loading reactions from Firestore: \(error.localizedDescription)")
+            print("👍 [\(Date())] UserReactionsService: Error loading reactions from Firestore: \(error.localizedDescription)")
         }
     }
     
-    func togglePunchlineReaction(userId: String, punchlineId: String, isLike: Bool) async throws -> (add: Bool, isLike: Bool) {
-        let currentReaction = punchlineReactions[punchlineId]
+    func toggleReaction(userId: String, id: String, isLike: Bool, type: String) async throws -> (add: Bool, isLike: Bool) {
+        var currentReaction: String?
+        var reactions: [String: String]
+        
+        switch type {
+        case "punchline":
+            currentReaction = punchlineReactions[id]
+            reactions = punchlineReactions
+        case "joke":
+            currentReaction = jokeReactions[id]
+            reactions = jokeReactions
+        default:
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid reaction type"])
+        }
+        
         let newReaction = isLike ? "like" : "dislike"
         
-        // Если текущая реакция такая же как новая - удаляем
         if currentReaction == newReaction {
-            punchlineReactions.removeValue(forKey: punchlineId)
-            try await updateFirestore(userId: userId, type: "punchline", id: punchlineId, reaction: nil)
+            if type == "punchline" {
+                punchlineReactions.removeValue(forKey: id)
+            } else if type == "joke" {
+                jokeReactions.removeValue(forKey: id)
+            }
+            try await updateFirestore(userId: userId, type: type, id: id, reaction: nil)
             saveToUserDefaults()
             return (add: false, isLike: isLike)
         }
         
-        // Добавляем новую реакцию
-        punchlineReactions[punchlineId] = newReaction
-        try await updateFirestore(userId: userId, type: "punchline", id: punchlineId, reaction: newReaction)
-        saveToUserDefaults()
-        return (add: true, isLike: isLike)
-    }
-    
-    func toggleJokeReaction(userId: String, jokeId: String, isLike: Bool) async throws -> (add: Bool, isLike: Bool) {
-        let currentReaction = jokeReactions[jokeId]
-        let newReaction = isLike ? "like" : "dislike"
-        
-        // Если текущая реакция такая же как новая - удаляем
-        if currentReaction == newReaction {
-            jokeReactions.removeValue(forKey: jokeId)
-            try await updateFirestore(userId: userId, type: "joke", id: jokeId, reaction: nil)
-            saveToUserDefaults()
-            return (add: false, isLike: isLike)
+        if type == "punchline" {
+            punchlineReactions[id] = newReaction
+        } else if type == "joke" {
+            jokeReactions[id] = newReaction
         }
-        
-        // Добавляем новую реакцию
-        jokeReactions[jokeId] = newReaction
-        try await updateFirestore(userId: userId, type: "joke", id: jokeId, reaction: newReaction)
+        try await updateFirestore(userId: userId, type: type, id: id, reaction: newReaction)
         saveToUserDefaults()
         return (add: true, isLike: isLike)
     }
@@ -97,12 +97,10 @@ class UserReactionsService: ObservableObject {
         let userReactionsRef = db.collection("user_reactions").document(userId)
         
         if let reaction = reaction {
-            // Добавляем реакцию
             try await userReactionsRef.setData([
                 "\(type)Reactions": [id: reaction]
             ], merge: true)
         } else {
-            // Удаляем реакцию
             try await userReactionsRef.updateData([
                 "\(type)Reactions.\(id)": FieldValue.delete()
             ])

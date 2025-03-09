@@ -1,10 +1,3 @@
-//
-//  UserService.swift
-//  Punch Jokes
-//
-//  Created by Anton Nagornyi on 19.12.24..
-//
-
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
@@ -15,13 +8,15 @@ class UserService: ObservableObject {
     // MARK: - Properties
     private let auth = Auth.auth()
     private let db = Firestore.firestore()
-    private let reactionsService = UserReactionsService()
+    let reactionsService = UserReactionsService()
     
     @Published var currentUser: User?
     @Published var allUsers: [User] = []
     @Published var userNameCache: [String: String] = [:]
     @Published var isLoading = true
     @Published var error: Error?
+    @Published var showAlert = false
+    @Published var alertMessage = ""
     
     init() {
         print("👤 UserService: Initializing...")
@@ -36,7 +31,6 @@ class UserService: ObservableObject {
     }
     
     private func loadCachedData() {
-        // Загружаем кэшированные данные
         if let cachedUsers = LocalStorage.loadUsers() {
             allUsers = cachedUsers
             print("👤 UserService: Loaded \(cachedUsers.count) users from cache")
@@ -62,7 +56,6 @@ class UserService: ObservableObject {
                 if let user = user {
                     print("👤 UserService: Auth state changed - user logged in with ID: \(user.uid)")
                     await self.fetchCurrentUser(userId: user.uid)
-                    // Sync reactions when user logs in
                     await self.reactionsService.syncWithFirestore(userId: user.uid)
                 } else {
                     print("👤 UserService: Auth state changed - user logged out")
@@ -76,8 +69,6 @@ class UserService: ObservableObject {
     func loadInitialData() async {
         print("👤 UserService: Starting initial data load")
         do {
-            // Загружаем всех пользователей
-            print("👤 UserService: Fetching all users")
             let snapshot = try await db.collection("users").getDocuments()
             print("👤 UserService: Retrieved \(snapshot.documents.count) user documents")
             
@@ -92,37 +83,23 @@ class UserService: ObservableObject {
                 }
             }
             
-            // Проверяем, изменились ли данные
             if fetchedUsers != allUsers {
                 allUsers = fetchedUsers
                 LocalStorage.saveUsers(fetchedUsers)
                 print("👤 UserService: Updated users array with \(fetchedUsers.count) users")
                 
-                // Обновляем кэш имен пользователей
-                var newCache: [String: String] = [:]
-                for user in fetchedUsers {
-                    let name = user.username ?? user.name ?? "Пользователь"
-                    newCache[user.id] = name
-                }
-                
-                if newCache != userNameCache {
-                    userNameCache = newCache
-                    LocalStorage.saveUserNameCache(newCache)
-                    print("👤 UserService: Updated username cache")
-                }
+                updateUserNameCache(with: fetchedUsers)
             } else {
                 print("👤 UserService: No changes in users data")
             }
             
-            // Если есть текущий пользователь, обновляем его данные
             if let currentUserId = auth.currentUser?.uid {
                 print("👤 UserService: Current user found, fetching details for ID: \(currentUserId)")
                 await fetchCurrentUser(userId: currentUserId)
             }
             
         } catch {
-            print("👤 UserService: Error during initial data load: \(error)")
-            self.error = error
+            handleError(error, message: "Error during initial data load")
         }
     }
     
@@ -139,12 +116,10 @@ class UserService: ObservableObject {
                     print("👤 UserService: Current user data hasn't changed")
                 }
             } else {
-                print("👤 UserService: Failed to decode current user document")
-                error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode user data"])
+                handleError(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode user data"]), message: "Failed to decode current user document")
             }
         } catch {
-            print("👤 UserService: Error fetching current user: \(error)")
-            self.error = error
+            handleError(error, message: "Error fetching current user")
         }
     }
     
@@ -156,7 +131,7 @@ class UserService: ObservableObject {
             LocalStorage.saveCurrentUser(User(id: "", email: ""))  // Сбрасываем кеш
             print("👤 UserService: Successfully logged out")
         } catch {
-            print("👤 UserService: Error during logout: \(error)")
+            handleError(error, message: "Error during logout")
             throw error
         }
     }
@@ -179,13 +154,10 @@ class UserService: ObservableObject {
                 print("👤 UserService: Updated user in allUsers array")
             }
             
-            let name = user.username ?? user.name ?? "Пользователь"
-            userNameCache[user.id] = name
-            LocalStorage.saveUserNameCache(userNameCache)
-            print("👤 UserService: Updated user in name cache")
+            updateUserNameCache(with: [user])
             
         } catch {
-            print("👤 UserService: Error updating user: \(error)")
+            handleError(error, message: "Error updating user")
             throw error
         }
     }
@@ -194,7 +166,7 @@ class UserService: ObservableObject {
         print("👤 UserService: Attempting to save current user to Firestore")
         guard let user = currentUser else {
             let error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No current user available"])
-            print("👤 UserService: Error - No current user available")
+            handleError(error, message: "Error - No current user available")
             throw error
         }
         try await updateUser(user)
@@ -213,7 +185,7 @@ class UserService: ObservableObject {
             try await syncFavorites()
             print("👤 UserService: Successfully logged in and fetched user data")
         } catch {
-            print("👤 UserService: Login failed with error: \(error)")
+            handleError(error, message: "Login failed")
             throw error
         }
     }
@@ -238,12 +210,11 @@ class UserService: ObservableObject {
             }
             LocalStorage.saveUsers(allUsers)
             
-            userNameCache[user.id] = username
-            LocalStorage.saveUserNameCache(userNameCache)
+            updateUserNameCache(with: [user])
             
             print("👤 UserService: Successfully registered and saved user data")
         } catch {
-            print("👤 UserService: Registration failed with error: \(error)")
+            handleError(error, message: "Registration failed")
             throw error
         }
     }
@@ -251,24 +222,18 @@ class UserService: ObservableObject {
     private func syncFavorites() async throws {
         guard let currentUser = currentUser else { return }
         
-        // Получаем локальные избранные
         let localFavoritesService = await LocalFavoritesService()
         let localFavorites = await localFavoritesService.favorites
         
-        // Получаем серверные избранные
         let serverFavorites = Set(currentUser.favouriteJokesIDs ?? [])
         
-        // Объединяем локальные и серверные избранные
         let mergedFavorites = localFavorites.union(serverFavorites)
         
-        // Обновляем пользователя
         var updatedUser = currentUser
         updatedUser.favouriteJokesIDs = Array(mergedFavorites)
         
-        // Сохраняем на сервер и в кэш
         try await updateUser(updatedUser)
         
-        // Очищаем локальные избранные после успешной синхронизации
         await localFavoritesService.clearFavorites()
         print("👤 UserService: Successfully synced favorites")
     }
@@ -279,8 +244,30 @@ class UserService: ObservableObject {
             try await auth.sendPasswordReset(withEmail: email)
             print("👤 UserService: Password reset email sent")
         } catch {
-            print("👤 UserService: Password reset failed: \(error)")
+            handleError(error, message: "Password reset failed")
             throw error
         }
+    }
+    
+    // MARK: - Helper Methods
+    private func updateUserNameCache(with users: [User]) {
+        var newCache = userNameCache
+        for user in users {
+            let name = user.username ?? user.name ?? "Пользователь"
+            newCache[user.id] = name
+        }
+        
+        if newCache != userNameCache {
+            userNameCache = newCache
+            LocalStorage.saveUserNameCache(newCache)
+            print("👤 UserService: Updated username cache")
+        }
+    }
+    
+    private func handleError(_ error: Error, message: String) {
+        print("👤 UserService: \(message) - \(error)")
+        self.error = error
+        alertMessage = message
+        showAlert = true
     }
 }

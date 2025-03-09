@@ -46,6 +46,9 @@ class AppService: ObservableObject {
     @Published var showTabBar = true
     @Published var isInitializing = true
     
+    @Published var proxy: ScrollViewProxy?
+    @Published var expandedJokeId: String?
+    
     
     func closeAccScreen() {
         shownScreen = lastScreen

@@ -7,39 +7,16 @@ struct JokeCard: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var localFavorites: LocalFavoritesService
-    @EnvironmentObject var reactionsService: UserReactionsService
     
     let joke: Joke
     @Binding var expandedJokeId: String?
     
-    @State private var isSavingFavorite = false
-    @State private var isUpdatingReaction = false
-    @State var addPunchline = false
+    @StateObject private var viewModel = JokeCardViewModel()
+    
+    @State var hasReaction: String?
     
     private var isExpanded: Bool {
         expandedJokeId == joke.id
-    }
-    
-    private var authorUsername: String {
-        if userService.isLoading {
-            return NSLocalizedString("loading", comment: "Loading")
-        }
-        return userService.userNameCache[joke.authorId] ?? NSLocalizedString("user", comment: "User")
-    }
-    
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-    
-    private var isFavorite: Bool {
-        if let currentUser = userService.currentUser {
-            return currentUser.favouriteJokesIDs?.contains(joke.id) ?? false
-        } else {
-            return localFavorites.contains(joke.id)
-        }
     }
     
     var body: some View {
@@ -55,21 +32,19 @@ struct JokeCard: View {
                 .onTapGesture {
                     hapticFeedback()
                     withAnimation {
-                        if isExpanded {
-                            expandedJokeId = nil
-                        } else {
-                            expandedJokeId = joke.id
-                        }
+                        expandedJokeId = isExpanded ? nil : joke.id
                     }
                 }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
         .onAppear {
+            hasReaction = userService.reactionsService
+                .getCurrentJokeReaction(for: joke.id)
             Task {
                 try? await jokeService.incrementJokeViews(joke.id)
             }
         }
-        .sheet(isPresented: $addPunchline) {
+        .sheet(isPresented: $viewModel.addPunchline) {
             AddJokeSheet(titleTwo: NSLocalizedString("punchline", comment: "Punchline"), joke: joke)
         }
     }
@@ -111,7 +86,7 @@ struct JokeCard: View {
             HStack {
                 Spacer()
                 GradientButton(name: NSLocalizedString("add_punchline", comment: "Add Punchline"), width: 200.0) {
-                    addPunchline = true
+                    viewModel.addPunchline = true
                 }
                 Spacer()
             }
@@ -145,6 +120,7 @@ struct JokeCard: View {
     
     var jokeContent: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("hasReaction ? \(hasReaction ?? "nil")")
             Text(joke.setup)
                 .font(.body)
                 .foregroundColor(.primary)
@@ -157,21 +133,100 @@ struct JokeCard: View {
                     .foregroundColor(.gray)
                 
                 Button(action: {
-                    guard !isUpdatingReaction else { return }
-                    toggleReaction(isLike: true)
+                    Task {
+                    
+                        if hasReaction == "dislike" {
+                            hasReaction = nil
+                            try? await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: false,
+                                    type: "joke"
+                                )
+                            try? await jokeService
+                                .toggleJokeReaction(
+                                    jokeId: joke.id,
+                                    isLike: false,
+                                    shouldAdd: false
+                                )
+                        }
+                        
+                        if hasReaction == "like" {
+                            hasReaction = nil
+                            try? await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: true, shouldAdd: false)
+                            try? await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: true,
+                                    type: "joke"
+                                )
+                        } else if hasReaction == nil {
+                            hasReaction = "like"
+                            try? await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: true, shouldAdd: true)
+                            try? await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: true,
+                                    type: "joke"
+                                )
+                        }
+                        
+                    }
                 }) {
-                    Label("\(joke.likes)", systemImage: reactionsService.getCurrentJokeReaction(for: joke.id) == "like" ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .foregroundColor(reactionsService.getCurrentJokeReaction(for: joke.id) == "like" ? .blue : .gray)
-                        .opacity(isUpdatingReaction ? 0.5 : 1.0)
+                    Label(
+                        "\(joke.likes)", systemImage: hasReaction == "like" ? "hand.thumbsup.fill" : "hand.thumbsup"
+                    )
+                        .foregroundColor(hasReaction == "like" ? .blue : .gray)
+                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
                 }
                 
                 Button(action: {
-                    guard !isUpdatingReaction else { return }
-                    toggleReaction(isLike: false)
+                    Task {
+                        
+                        if hasReaction == "like" {
+                            hasReaction = nil
+                            try await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: true,
+                                    type: "joke"
+                                )
+                            try await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: true, shouldAdd: false)
+                        }
+                        
+                        if hasReaction == "dislike" {
+                            hasReaction = nil
+                            try await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: false, shouldAdd: false)
+                            try await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: false,
+                                    type: "joke"
+                                )
+                        } else if hasReaction == nil {
+                            hasReaction = "dislike"
+                            try await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: false, shouldAdd: true)
+                            try await userService.reactionsService
+                                .toggleReaction(
+                                    userId: userService.currentUser?.id ?? "",
+                                    id: joke.id,
+                                    isLike: false,
+                                    type: "joke"
+                                )
+                        }
+                        
+                    }
                 }) {
-                    Label("\(joke.dislikes)", systemImage: reactionsService.getCurrentJokeReaction(for: joke.id) == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .foregroundColor(reactionsService.getCurrentJokeReaction(for: joke.id) == "dislike" ? .red : .gray)
-                        .opacity(isUpdatingReaction ? 0.5 : 1.0)
+                    Label(
+                        "\(joke.dislikes)", systemImage: hasReaction == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+                    )
+                        .foregroundColor(hasReaction == "dislike" ? .red : .gray)
+                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
                 }
             }
             .font(.caption)
@@ -180,20 +235,20 @@ struct JokeCard: View {
     
     var heartIcon: some View {
         Button {
-            if !isSavingFavorite {
-                toggleFavorite()
+            Task {
+                await viewModel.toggleFavorite(joke: joke, userService: userService, localFavorites: localFavorites)
             }
         } label: {
-            Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .foregroundColor(isFavorite ? .red : .gray)
-                .opacity(isSavingFavorite ? 0.5 : 1.0)
+            Image(systemName: viewModel.isFavorite(joke: joke, userService: userService, localFavorites: localFavorites) ? "heart.fill" : "heart")
+                .foregroundColor(viewModel.isFavorite(joke: joke, userService: userService, localFavorites: localFavorites) ? .red : .gray)
+                .opacity(viewModel.isSavingFavorite ? 0.5 : 1.0)
         }
-        .disabled(isSavingFavorite)
+        .disabled(viewModel.isSavingFavorite)
     }
     
     var authorAndDate: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(authorUsername)
+            Text(viewModel.authorUsername(joke: joke, userService: userService))
                 .font(.caption)
                 .foregroundColor(.gray)
             
@@ -204,62 +259,68 @@ struct JokeCard: View {
     }
     
     var shareButton: some View {
-        Button(action: shareJoke) {
+        Button(action: {
+            viewModel.shareJoke(joke: joke)
+        }) {
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 16))
                 .foregroundColor(.gray)
         }
     }
+}
+
+final class JokeCardViewModel: ObservableObject {
+    @Published var isSavingFavorite = false
+    @Published var isUpdatingReaction = false
+    @Published var addPunchline = false
     
-    private func toggleFavorite() {
+    @MainActor
+    func toggleFavorite(joke: Joke, userService: UserService, localFavorites: LocalFavoritesService) async {
         guard !isSavingFavorite else { return }
         isSavingFavorite = true
         
-        Task {
-            do {
-                if let currentUser = userService.currentUser {
-                    var favorites = currentUser.favouriteJokesIDs ?? []
-                    if favorites.contains(joke.id) {
-                        favorites.removeAll { $0 == joke.id }
-                    } else {
-                        favorites.append(joke.id)
-                    }
-                    currentUser.favouriteJokesIDs = favorites
-                    try await userService.saveUserToFirestore()
+        do {
+            if let currentUser = userService.currentUser {
+                var favorites = currentUser.favouriteJokesIDs ?? []
+                if favorites.contains(joke.id) {
+                    favorites.removeAll { $0 == joke.id }
                 } else {
-                    if localFavorites.contains(joke.id) {
-                        localFavorites.removeFavoriteJoke(joke.id)
-                    } else {
-                        localFavorites.addFavoriteJoke(joke.id)
-                    }
+                    favorites.append(joke.id)
                 }
-            } catch {
-                print("Error toggling favorite: \(error)")
+                currentUser.favouriteJokesIDs = favorites
+                try await userService.saveUserToFirestore()
+            } else {
+                if localFavorites.contains(joke.id) {
+                    localFavorites.removeFavoriteJoke(joke.id)
+                } else {
+                    localFavorites.addFavoriteJoke(joke.id)
+                }
             }
-            
-            isSavingFavorite = false
-        }
-    }
-    
-    private func toggleReaction(isLike: Bool) {
-        guard let currentUser = userService.currentUser else {
-            return
+        } catch {
+            print("Error toggling favorite: \(error)")
         }
         
-        Task {
-            isUpdatingReaction = true
-            defer { isUpdatingReaction = false }
-            
-            do {
-                let result = try await reactionsService.toggleJokeReaction(userId: currentUser.id, jokeId: joke.id, isLike: isLike)
-                try await jokeService.toggleJokeReaction(joke.id, isLike: result.isLike, shouldAdd: result.add)
-            } catch {
-                print("Error toggling reaction: \(error)")
-            }
-        }
+        isSavingFavorite = false
     }
     
-    private func shareJoke() {
+//    @MainActor
+//    func toggleReaction(isLike: Bool, joke: Joke, userService: UserService, reactionsService: UserReactionsService, jokeService: JokeService) async {
+//        guard let currentUser = userService.currentUser else {
+//            return
+//        }
+//
+//        isUpdatingReaction = true
+//        defer { isUpdatingReaction = false }
+//
+//        do {
+//            let result = try await reactionsService.toggleReaction(userId: currentUser.id, id: joke.id, isLike: isLike, type: "joke")
+//            try await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: result.isLike, shouldAdd: result.add)
+//        } catch {
+//            print("Error toggling reaction: \(error)")
+//        }
+//    }
+    
+    func shareJoke(joke: Joke) {
         let textToShare = """
         \(joke.setup)
         
@@ -276,111 +337,33 @@ struct JokeCard: View {
             rootViewController.present(activityViewController, animated: true)
         }
     }
+    
+    @MainActor
+    func isFavorite(joke: Joke, userService: UserService, localFavorites: LocalFavoritesService) -> Bool {
+        if let currentUser = userService.currentUser {
+            return currentUser.favouriteJokesIDs?.contains(joke.id) ?? false
+        } else {
+            return localFavorites.contains(joke.id)
+        }
+    }
+    
+    @MainActor
+    func authorUsername(joke: Joke, userService: UserService) -> String {
+        if userService.isLoading {
+            return NSLocalizedString("loading", comment: "Loading")
+        }
+        return userService.userNameCache[joke.authorId] ?? NSLocalizedString("user", comment: "User")
+    }
 }
 
-// Отдельное view для панчлайна
 struct PunchlineView: View {
     let punchline: Punchline
     let jokeId: String
-    @EnvironmentObject var jokeService: JokeService
-    @EnvironmentObject var userService: UserService
-    @EnvironmentObject var reactionsService: UserReactionsService
-    @State private var isUpdating = false
-    @State private var errorMessage: String?
-    
-    private var currentReaction: String? {
-        reactionsService.getCurrentPunchlineReaction(for: punchline.id)
-    }
     
     var body: some View {
-        HStack(spacing: 8) {
-            Text(punchline.text)
-                .font(.headline)
-                .foregroundColor(.purple)
-                .fontWeight(.medium)
-            
-            Spacer()
-            
-            HStack(spacing: 16) {
-                Button(action: {
-                    guard !isUpdating else { return }
-                    toggleReaction(isLike: true)
-                }) {
-                    Label("\(punchline.likes)", systemImage: currentReaction == "like" ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .foregroundColor(currentReaction == "like" ? .blue : .gray)
-                        .opacity(isUpdating ? 0.5 : 1.0)
-                }
-                
-                Button(action: {
-                    guard !isUpdating else { return }
-                    toggleReaction(isLike: false)
-                }) {
-                    Label("\(punchline.dislikes)", systemImage: currentReaction == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .foregroundColor(currentReaction == "dislike" ? .red : .gray)
-                        .opacity(isUpdating ? 0.5 : 1.0)
-                }
-            }
-            .font(.caption)
-            
-            if let error = errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .transition(.opacity)
-            }
-        }
-        .padding()
+        Text(punchline.text)
+            .font(.headline)
+            .foregroundColor(.purple)
+            .fontWeight(.medium)
     }
-    
-    private func toggleReaction(isLike: Bool) {
-        guard let currentUser = userService.currentUser else {
-            errorMessage = NSLocalizedString("login_to_react", comment: "Login to react")
-            return
-        }
-        
-        isUpdating = true
-        errorMessage = nil
-        
-        Task {
-            do {
-                let result = try await reactionsService.togglePunchlineReaction(userId: currentUser.id, punchlineId: punchline.id, isLike: isLike)
-                try await jokeService.togglePunchlineReaction(jokeId, punchline.id, isLike: result.isLike, shouldAdd: result.add)
-            } catch {
-                errorMessage = NSLocalizedString("reaction_update_failed", comment: "Failed to update reaction")
-                print("Error toggling reaction: \(error)")
-            }
-            isUpdating = false
-        }
-    }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
-// MARK: - Full Screen Preview
-#Preview("Full Screen") {
-    JokeCard(
-        joke: Joke(
-            id: "123",
-            setup: "Setup Setup Setup Setup S S S S S S S S S S S S S S ?",
-            punchlines: [Punchline(id: "123", text: "Punch punch punch", status: "approved", authorId: "123123123")],
-            status: "approved",
-            authorId: "123123123",
-            createdAt: Date()
-        ),
-        expandedJokeId: .constant(nil)
-    )
-    .environmentObject(AppService())
-    .environmentObject(JokeService())
-    .environmentObject(UserService())
-    .environmentObject(LocalFavoritesService())
-    .environmentObject(UserReactionsService())
-    .preferredColorScheme(.dark)
 }

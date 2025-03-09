@@ -41,15 +41,15 @@ struct YourApp: App {
     
 }
 
-#Preview {
-    TabBarView()
-        .environmentObject(AppService())
-        .environmentObject(JokeService())
-        .environmentObject(UserService())
-        .environmentObject(LocalFavoritesService())
-        .environmentObject(UserReactionsService())
-        .preferredColorScheme(.dark)
-}
+//#Preview {
+//    TabBarView()
+//        .environmentObject(AppService())
+//        .environmentObject(JokeService())
+//        .environmentObject(UserService())
+//        .environmentObject(LocalFavoritesService())
+//        .environmentObject(UserReactionsService())
+//        .preferredColorScheme(.dark)
+//}
 
 func hapticFeedback() {
     let generator = UIImpactFeedbackGenerator(style: .medium)

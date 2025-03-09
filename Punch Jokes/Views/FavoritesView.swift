@@ -11,9 +11,10 @@ struct FavoritesView: View {
     
     @EnvironmentObject var jokeService: JokeService
     @EnvironmentObject var userService: UserService
+    @EnvironmentObject var appService: AppService
     @StateObject private var localFavorites = LocalFavoritesService()
     
-    @State private var expandedJokeId: String? = nil
+//    @State private var expandedJokeId: String? = nil
     
     var favoriteJokes: [Joke] {
         let jokes: [Joke]
@@ -53,7 +54,7 @@ struct FavoritesView: View {
                         ForEach(favoriteJokes) { joke in
                             JokeCard(
                                 joke: joke,
-                                expandedJokeId: $expandedJokeId
+                                expandedJokeId: $appService.expandedJokeId
                             )
                         }
                     }

@@ -10,7 +10,8 @@ struct AllJokesView: View {
     
     @State var showError = false
     @State var errorMessage = ""
-    @State private var expandedJokeId: String? = nil
+//    @State private var expandedJokeId: String? = nil
+    
     
     var sortedJokes: [Joke] {
         jokeService.jokes
@@ -37,51 +38,12 @@ struct AllJokesView: View {
                     
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(spacing: 16) { // Use LazyVStack
+                            LazyVStack(spacing: 16) {
                                 ForEach(sortedJokes) { joke in
-                                    JokeCard(joke: joke, expandedJokeId: $expandedJokeId)
+                                    JokeCard(joke: joke, expandedJokeId: $appService.expandedJokeId)
                                         .padding(.horizontal)
-                                        .id(joke.id) // Ensure ID is non-optional & unique
-                                        .highPriorityGesture(
-                                            TapGesture()
-                                                .onEnded { _ in
-                                                    print("Tapped joke ID: \(joke.id)")
-                                                    if expandedJokeId == joke.id {
-                                                        expandedJokeId = nil
-                                                    } else {
-                                                        expandedJokeId = joke.id
-                                                        
-                                                        DispatchQueue.main.async { // Ensures the view is updated before scrolling
-                                                            print("Scrolling to joke ID: \(joke.id)")
-                                                            withAnimation(.spring(response: 0.8, dampingFraction: 0.5, blendDuration: 0.5)) {
-                                                                proxy
-                                                                    .scrollTo(
-                                                                        joke.id,
-                                                                        anchor: .top
-                                                                    )
-                                                            }
-                                                        }
-                                                        
-                                                        
-                                                    }
-                                                }
-                                        )
-//                                        .onTapGesture {
-//                                            print("Tapped joke ID: \(joke.id)")
-//                                            if expandedJokeId == joke.id {
-//                                                expandedJokeId = nil
-//                                            } else {
-//                                                expandedJokeId = joke.id
-//                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { // Ensures the view is updated before scrolling
-//                                                    print("Scrolling to joke ID: \(joke.id)")
-//                                                    proxy
-//                                                        .scrollTo(
-//                                                            joke.id,
-//                                                            anchor: .center
-//                                                        )
-//                                                }
-//                                            }
-//                                        }
+                                        .id(joke.id)
+                                        
                                 }
 
                                 if jokeService.isLoadingMore {
@@ -91,14 +53,26 @@ struct AllJokesView: View {
                             }
                             .padding(.vertical)
                         }
-//                        .appBackground()
+                        .appBackground() // Uncommented to apply background styling
                         .scrollIndicators(.hidden)
+                        
+                        .onAppear {
+                            appService.proxy = proxy
+                        }
+                        .onChange(of: appService.expandedJokeId) { _, _ in
+                            DispatchQueue.main.async {
+                                print("Scrolling to joke ID: \(appService.expandedJokeId ?? "")")
+                                withAnimation(.spring(response: 1, dampingFraction: 0.5, blendDuration: 0.5)) {
+                                    proxy.scrollTo(appService.expandedJokeId, anchor: .top)
+                                }
+                            }
+                            appService.proxy = proxy
+                        }
+                        
                     }
-
                     
                 }
             }
-//            .background(Color.clear)
             .navigationTitle(LocalizedStringKey("all_jokes"))
             .refreshable {
                 Task {
@@ -112,6 +86,21 @@ struct AllJokesView: View {
             Text(errorMessage)
         }
     }
+    
+//    private func handleTapGesture(_ joke: Joke, proxy: ScrollViewProxy) {
+//        print("Tapped joke ID: \(joke.id)")
+//        if appService.expandedJokeId == joke.id {
+//            appService.expandedJokeId = nil
+//        } else {
+//            appService.expandedJokeId = joke.id
+//            DispatchQueue.main.async {
+//                print("Scrolling to joke ID: \(joke.id)")
+//                withAnimation(.spring(response: 1, dampingFraction: 0.5, blendDuration: 0.5)) {
+//                    proxy.scrollTo(joke.id, anchor: .top)
+//                }
+//            }
+//        }
+//    }
     
     func refreshJokes() async {
         do {
