@@ -14,7 +14,7 @@ class AppService: ObservableObject {
         case onboarding
         case allJokes = "house"
         case favorites = "heart"
-        case myJokes = "plus"
+        case myJokes = "list.bullet.rectangle.portrait"
         case settings
         case account = "person"
         
@@ -48,7 +48,7 @@ class AppService: ObservableObject {
     
     @Published var proxy: ScrollViewProxy?
     @Published var expandedJokeId: String?
-    
+    @Published var goOnTop = false
     
     func closeAccScreen() {
         shownScreen = lastScreen

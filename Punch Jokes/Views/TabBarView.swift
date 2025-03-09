@@ -130,15 +130,19 @@ struct TabBarView: View {
         HStack(spacing: 0) {
             ForEach(screens, id: \.self) { tab in
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    if appService.shownScreen == .allJokes && tab == .allJokes {
+                        appService.goOnTop.toggle()
+                    }
+                    withAnimation(.easeInOut(duration: 1)) {
                         appService.shownScreen = tab
                     }
+                    appService.expandedJokeId = nil
                 }) {
                     VStack(spacing: 8) {
                         Image(systemName: tab.rawValue)
                             .font(.system(size: 24, weight: .semibold))
-                        Text(tab.title)
-                            .font(.system(size: 12, weight: .medium))
+//                        Text(tab.title)
+//                            .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundColor(appService.shownScreen == tab ? .white : .gray)
                     .frame(maxWidth: .infinity)

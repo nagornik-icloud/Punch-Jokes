@@ -90,20 +90,20 @@ class JokeService: ObservableObject {
         let uniqueAuthors = Set(jokes.map { $0.authorId })
         
         for authorId in uniqueAuthors {
-            let lastUpdate = loadedImagesTimestamps[authorId] ?? .distantPast
-            let shouldUpdate = Date().timeIntervalSince(lastUpdate) > 3600
+//            let lastUpdate = loadedImagesTimestamps[authorId] ?? .distantPast
+//            let shouldUpdate = Date().timeIntervalSince(lastUpdate) > 3600
             
-            if !shouldUpdate, let cachedImage = authorImages[authorId] {
-                continue
-            }
+//            if !shouldUpdate, let cachedImage = authorImages[authorId] {
+//                continue
+//            }
             
             if let image = try? await loadAuthorImage(for: authorId) {
                 await MainActor.run {
                     authorImages[authorId] = image
-                    loadedImagesTimestamps[authorId] = Date()
+//                    loadedImagesTimestamps[authorId] = Date()
                 }
                 LocalStorage.saveImage(image, forUserId: authorId)
-                UserDefaults.standard.set(loadedImagesTimestamps, forKey: "AuthorImagesTimestamps")
+//                UserDefaults.standard.set(loadedImagesTimestamps, forKey: "AuthorImagesTimestamps")
             }
         }
     }
@@ -270,15 +270,15 @@ class JokeService: ObservableObject {
         }
         
         isLoading = true
-        let joke = Joke(
+        var joke = Joke(
             id: UUID().uuidString,
             setup: setup,
-            punchlines: [Punchline(
-                id: UUID().uuidString,
-                text: punchline,
-                status: "pending",
-                authorId: user.id
-            )],
+//            punchlines: [Punchline(
+//                id: UUID().uuidString,
+//                text: punchline,
+//                status: "pending",
+//                authorId: user.id
+//            )],
             status: "pending",
             authorId: user.id,
             createdAt: Date()
@@ -286,6 +286,15 @@ class JokeService: ObservableObject {
         
         let jokeRef = db.collection("jokes").document(joke.id)
         try await jokeRef.setData(from: joke)
+        let punchId = UUID().uuidString
+        let punchline = Punchline(id: punchId, text: punchline, likes: 0, dislikes: 0, status: "pending", authorId: user.id, createdAt: Date())
+        
+        try await jokeRef
+            .collection("punchlines")
+            .document(punchId)
+            .setData(from: punchline)
+        
+        joke.punchlines = [punchline]
         
         jokes.insert(joke, at: 0)
         LocalStorage.saveJokes(jokes)
@@ -408,19 +417,6 @@ class JokeService: ObservableObject {
         isLoading = false
     }
     
-    func updatePunchlineStatus(_ jokeId: String, _ punchlineId: String, status: String) async throws {
-        let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchlineId)
-        
-        try await punchlineRef.updateData([
-            "status": status
-        ])
-        
-        if let jokeIndex = jokes.firstIndex(where: { $0.id == jokeId }),
-           let punchlineIndex = jokes[jokeIndex].punchlines.firstIndex(where: { $0.id == punchlineId }) {
-            jokes[jokeIndex].punchlines[punchlineIndex].status = status
-            LocalStorage.saveJokes(jokes)
-        }
-    }
     
     // MARK: - Helper Methods
     func getJokesByAuthor(_ authorId: String) -> [Joke] {
@@ -444,22 +440,22 @@ class JokeService: ObservableObject {
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to data"])
         }
         
-        let storageRef = storage.reference().child("profile_images/\(userId).jpg")
-        _ = try await storageRef.putDataAsync(imageData)
+        let storageRef = storage.reference().child("user_images/\(userId).jpg")
+        try await storageRef.putDataAsync(imageData)
         
         authorImages[userId] = image
         LocalStorage.saveImage(image, forUserId: userId)
     }
     
     func reloadAuthorImage(for userId: String) async {
-        guard authorImages[userId] == nil && !loadedImagesTimestamps.keys.contains(userId) else {
-            return
-        }
+//        guard authorImages[userId] == nil && !loadedImagesTimestamps.keys.contains(userId) else {
+//            return
+//        }
         
         do {
             if let image = try await loadAuthorImage(for: userId) {
                 authorImages[userId] = image
-                loadedImagesTimestamps[userId] = Date()
+//                loadedImagesTimestamps[userId] = Date()
                 LocalStorage.saveImage(image, forUserId: userId)
             }
         } catch {

@@ -61,10 +61,10 @@ struct LoginView: View {
             }
             .padding(.top, 50)
             .appBackground()
-            .alert(alertTitle, isPresented: $showingAlert) {
+            .alert("ОшибОЧКА..", isPresented: $userService.showAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(alertMessage)
+                Text(userService.alertMessage)
             }
             .alert("Сброс пароля", isPresented: $showingResetPassword) {
                 TextField("Email", text: $email)
@@ -79,36 +79,17 @@ struct LoginView: View {
             } message: {
                 Text("Введите email для сброса пароля")
             }
-            .alert("Ошибка", isPresented: $showError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage)
-            }
+
         }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Отмена") {
-                    dismiss()
-                }
-            }
-        }
+
     }
     
+    @MainActor
     private func login() {
         isLoading = true
-        
+        defer {isLoading = false}
         Task {
-            do {
-                try await userService.login(email: email, password: password)
-                await MainActor.run {
-                    dismiss()
-                }
-            } catch {
-                alertTitle = "Ошибка"
-                alertMessage = error.localizedDescription
-                showingAlert = true
-            }
-            isLoading = false
+            try await userService.login(email: email, password: password)
         }
     }
     

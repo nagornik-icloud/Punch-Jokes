@@ -6,7 +6,6 @@ import FirebaseFirestore
 struct JokeCard: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var jokeService: JokeService
-    @EnvironmentObject var localFavorites: LocalFavoritesService
     
     let joke: Joke
     @Binding var expandedJokeId: String?
@@ -110,7 +109,7 @@ struct JokeCard: View {
                         .transition(.opacity)
                 } else if jokeService.isLoadingImages {
                     ProgressView()
-                        .frame(width: 30, height: 30)
+                        .frame(width: 40, height: 40)
                 }
             }
         }
@@ -120,7 +119,6 @@ struct JokeCard: View {
     
     var jokeContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("hasReaction ? \(hasReaction ?? "nil")")
             Text(joke.setup)
                 .font(.body)
                 .foregroundColor(.primary)
@@ -236,11 +234,16 @@ struct JokeCard: View {
     var heartIcon: some View {
         Button {
             Task {
-                await viewModel.toggleFavorite(joke: joke, userService: userService, localFavorites: localFavorites)
+                await viewModel
+                    .toggleFavorite(
+                        joke: joke,
+                        userService: userService,
+                        localFavorites: userService
+                            .localFavoritesService)
             }
         } label: {
-            Image(systemName: viewModel.isFavorite(joke: joke, userService: userService, localFavorites: localFavorites) ? "heart.fill" : "heart")
-                .foregroundColor(viewModel.isFavorite(joke: joke, userService: userService, localFavorites: localFavorites) ? .red : .gray)
+            Image(systemName: viewModel.isFavorite(joke: joke, userService: userService, localFavorites: userService.localFavoritesService) ? "heart.fill" : "heart")
+                .foregroundColor(viewModel.isFavorite(joke: joke, userService: userService, localFavorites: userService.localFavoritesService) ? .red : .gray)
                 .opacity(viewModel.isSavingFavorite ? 0.5 : 1.0)
         }
         .disabled(viewModel.isSavingFavorite)

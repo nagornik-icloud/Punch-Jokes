@@ -1,14 +1,26 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseAuth
 
 @MainActor
 class UserReactionsService: ObservableObject {
     private let db = Firestore.firestore()
     @Published private(set) var punchlineReactions: [String: String] = [:] // [punchlineId: "like"/"dislike"]
     @Published private(set) var jokeReactions: [String: String] = [:] // [jokeId: "like"/"dislike"]
+    private let auth = Auth.auth()
     
     init() {
+        guard auth.currentUser != nil else {
+            print("👤 UserService: No user logged in")
+            return
+        }
         loadFromUserDefaults()
+    }
+    
+    func clearReactions() {
+        punchlineReactions.removeAll()
+        jokeReactions.removeAll()
+        saveToUserDefaults()
     }
     
     private func loadFromUserDefaults() {

@@ -400,7 +400,7 @@ struct UserProfileView: View {
                 
                 let resizedImage = image.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? image
                 try await jokeService.uploadAuthorImage(resizedImage, userId: user.id)
-                try await jokeService.reloadAuthorImage(for: user.id)
+//                try await jokeService.reloadAuthorImage(for: user.id)
                 
                 // Сбрасываем selectedItem после успешной загрузки
                 await MainActor.run {

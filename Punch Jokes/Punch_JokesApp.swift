@@ -17,8 +17,6 @@ struct YourApp: App {
     @StateObject var appService = AppService()
     @StateObject var userService = UserService()
     @StateObject var jokeService = JokeService()
-    @StateObject var localFavoritesService = LocalFavoritesService()
-    @StateObject var reactionsService = UserReactionsService()
     
     init() {
         
@@ -33,8 +31,6 @@ struct YourApp: App {
                 .environmentObject(appService)
                 .environmentObject(userService)
                 .environmentObject(jokeService)
-                .environmentObject(localFavoritesService)
-                .environmentObject(reactionsService)
                 .preferredColorScheme(.dark)
         }
     }
@@ -46,8 +42,6 @@ struct YourApp: App {
 //        .environmentObject(AppService())
 //        .environmentObject(JokeService())
 //        .environmentObject(UserService())
-//        .environmentObject(LocalFavoritesService())
-//        .environmentObject(UserReactionsService())
 //        .preferredColorScheme(.dark)
 //}
 

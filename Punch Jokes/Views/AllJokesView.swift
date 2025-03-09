@@ -38,6 +38,11 @@ struct AllJokesView: View {
                     
                     ScrollViewReader { proxy in
                         ScrollView {
+                            
+                            Color.clear
+                                .frame(height: 1)
+                                .id("top")
+                            
                             LazyVStack(spacing: 16) {
                                 ForEach(sortedJokes) { joke in
                                     JokeCard(joke: joke, expandedJokeId: $appService.expandedJokeId)
@@ -68,12 +73,19 @@ struct AllJokesView: View {
                             }
                             appService.proxy = proxy
                         }
+                        .onChange(of: appService.goOnTop) { _, _ in
+                            DispatchQueue.main.async {
+                                withAnimation(.spring(response: 1, dampingFraction: 0.5, blendDuration: 0.5)) {
+                                    proxy.scrollTo("top", anchor: .top)
+                                }
+                            }
+                        }
                         
                     }
                     
                 }
             }
-            .navigationTitle(LocalizedStringKey("all_jokes"))
+            .navigationTitle(LocalizedStringKey("Все шутки"))
             .refreshable {
                 Task {
                     await refreshJokes()

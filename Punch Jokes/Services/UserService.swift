@@ -9,6 +9,7 @@ class UserService: ObservableObject {
     private let auth = Auth.auth()
     private let db = Firestore.firestore()
     let reactionsService = UserReactionsService()
+    let localFavoritesService = LocalFavoritesService()
     
     @Published var currentUser: User?
     @Published var allUsers: [User] = []
@@ -19,8 +20,13 @@ class UserService: ObservableObject {
     @Published var alertMessage = ""
     
     init() {
+        defer {isLoading = false}
         print("👤 UserService: Initializing...")
-        loadCachedData()
+        if auth.currentUser != nil {
+            print("👤 UserService: No user logged in")
+            loadCachedData()
+        }
+        
         setupAuthStateListener()
         
         // Загружаем свежие данные с сервера в фоне
@@ -129,6 +135,7 @@ class UserService: ObservableObject {
             try auth.signOut()
             currentUser = nil
             LocalStorage.saveCurrentUser(User(id: "", email: ""))  // Сбрасываем кеш
+            reactionsService.clearReactions()
             print("👤 UserService: Successfully logged out")
         } catch {
             handleError(error, message: "Error during logout")
@@ -190,14 +197,14 @@ class UserService: ObservableObject {
         }
     }
     
-    func register(email: String, password: String, username: String) async throws {
+    func register(email: String, password: String, username: String, name: String? = nil) async throws {
         print("👤 UserService: Attempting to register with email: \(email)")
         isLoading = true
         defer { isLoading = false }
         
         do {
             let result = try await auth.createUser(withEmail: email, password: password)
-            let user = User(id: result.user.uid, email: email, username: username)
+            let user = User(id: result.user.uid, email: email, username: username, name:name)
             
             try await db.collection("users").document(user.id).setData(from: user)
             currentUser = user
@@ -222,7 +229,7 @@ class UserService: ObservableObject {
     private func syncFavorites() async throws {
         guard let currentUser = currentUser else { return }
         
-        let localFavoritesService = await LocalFavoritesService()
+//        let localFavoritesService = await LocalFavoritesService()
         let localFavorites = await localFavoritesService.favorites
         
         let serverFavorites = Set(currentUser.favouriteJokesIDs ?? [])
