@@ -9,10 +9,11 @@ import SwiftUI
 
 struct GradientButton: View {
     @State private var isPressed = false
+    @State private var buttonSize: CGSize = .zero
     
     var name: String = "Button"
     var width: CGFloat = 165
-    var height: CGFloat = 62
+    var height: CGFloat = 36
     var action: () -> Void
     
     var body: some View {
@@ -32,13 +33,22 @@ struct GradientButton: View {
                 )
                 .blur(radius: 15)
                 .opacity(isPressed ? 1 : 0.7) // Match the glow effect with button state
-                .offset(x: 0, y: 0)
                 .allowsHitTesting(false)
+                
 //                .padding(-200)
-//                .frame(width: 165, height: 62)
+                .frame(width: buttonSize.width + 5, height: buttonSize.height + 5)
             
             // Button
             buttonItself
+                .background(GeometryReader { geometry in
+                                Color.clear
+                                    .onAppear {
+                                        buttonSize = geometry.size
+                                    }
+                                    .onChange(of: geometry.size) { newSize in
+                                        buttonSize = newSize
+                                    }
+                            })
         }
         .animation(.easeInOut(duration: 0.5), value: isPressed)
 //        .frame(width: 165, height: 62) // Ensure everything aligns
@@ -53,15 +63,14 @@ struct GradientButton: View {
             }
             
         }
-        .frame(width: width, height: height)
+//        .frame(width: width, height: height)
     }
     
     var buttonItself: some View {
         Text(name)
-            .font(.system(size: 17, weight: .medium))
             .foregroundColor(.white)
-            .padding(.vertical, 20)
-            .padding(.horizontal, 48)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 36)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
@@ -89,7 +98,8 @@ struct GradientButton: View {
 }
 
 #Preview {
-    GradientButton(action: {
-    })
-        .preferredColorScheme(.dark)
+    GradientButton(name: NSLocalizedString("Добавить панч", comment: "Add Punchline")) {
+        print("Button tapped")
+    }
+    .preferredColorScheme(.dark)
 }

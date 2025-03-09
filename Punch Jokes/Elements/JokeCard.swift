@@ -78,15 +78,20 @@ struct JokeCard: View {
     
     private var expandedCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(joke.punchlines.sorted(by: { $0.likes > $1.likes })) { punchline in
+            ForEach(
+                joke.punchlines
+                    .filter({ $0.status == "approved" || $0.authorId == userService.currentUser?.id ?? ""})
+                    .sorted(by: { Double($0.likes)/Double($0.dislikes) > Double($1.likes)/Double($1.dislikes) })
+            ) { punchline in
                 PunchlineView(punchline: punchline, jokeId: joke.id)
             }
             
             HStack {
-                Spacer()
-                GradientButton(name: NSLocalizedString("add_punchline", comment: "Add Punchline"), width: 200.0) {
+//                Spacer()
+                GradientButton(name: NSLocalizedString("Добавить панч", comment: "Add Punchline")) {
                     viewModel.addPunchline = true
                 }
+                .padding(.top)
                 Spacer()
             }
             .padding(0)
@@ -178,7 +183,7 @@ struct JokeCard: View {
                         "\(joke.likes)", systemImage: hasReaction == "like" ? "hand.thumbsup.fill" : "hand.thumbsup"
                     )
                         .foregroundColor(hasReaction == "like" ? .blue : .gray)
-                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
+//                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
                 }
                 
                 Button(action: {
@@ -224,7 +229,7 @@ struct JokeCard: View {
                         "\(joke.dislikes)", systemImage: hasReaction == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown"
                     )
                         .foregroundColor(hasReaction == "dislike" ? .red : .gray)
-                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
+//                        .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
                 }
             }
             .font(.caption)
@@ -305,24 +310,7 @@ final class JokeCardViewModel: ObservableObject {
         
         isSavingFavorite = false
     }
-    
-//    @MainActor
-//    func toggleReaction(isLike: Bool, joke: Joke, userService: UserService, reactionsService: UserReactionsService, jokeService: JokeService) async {
-//        guard let currentUser = userService.currentUser else {
-//            return
-//        }
-//
-//        isUpdatingReaction = true
-//        defer { isUpdatingReaction = false }
-//
-//        do {
-//            let result = try await reactionsService.toggleReaction(userId: currentUser.id, id: joke.id, isLike: isLike, type: "joke")
-//            try await jokeService.toggleJokeReaction(jokeId: joke.id, isLike: result.isLike, shouldAdd: result.add)
-//        } catch {
-//            print("Error toggling reaction: \(error)")
-//        }
-//    }
-    
+ 
     func shareJoke(joke: Joke) {
         let textToShare = """
         \(joke.setup)
@@ -360,13 +348,198 @@ final class JokeCardViewModel: ObservableObject {
 }
 
 struct PunchlineView: View {
+    
+    @EnvironmentObject var userService: UserService
+    @EnvironmentObject var jokeService: JokeService
+    
     let punchline: Punchline
     let jokeId: String
     
+    @State var hasReaction: String?
+    
     var body: some View {
-        Text(punchline.text)
-            .font(.headline)
-            .foregroundColor(.purple)
-            .fontWeight(.medium)
+        HStack {
+            Text(punchline.text)
+                .font(.headline)
+                .foregroundColor(.purple)
+                .fontWeight(.medium)
+                .lineLimit(nil)  // Позволяет неограниченное количество строк
+                .multilineTextAlignment(.leading) // Выравнивание по левому краю
+                .fixedSize(horizontal: false, vertical: true) // Позволяет расширяться по высоте
+            Spacer()
+            
+            
+            Button(action: {
+                Task {
+                
+                    if hasReaction == "dislike" {
+                        hasReaction = nil
+                        try? await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: false,
+                                type: "punchline"
+                            )
+                        
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: false,
+                                shouldAdd: false
+                            )
+                        
+                    }
+                    
+                    if hasReaction == "like" {
+                        hasReaction = nil
+                        
+                        try? await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: true,
+                                type: "punchline"
+                            )
+                        
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: true,
+                                shouldAdd: false
+                            )
+                        
+                    } else if hasReaction == nil {
+                        hasReaction = "like"
+                        
+                        try? await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: true,
+                                type: "punchline"
+                            )
+                        
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: true,
+                                shouldAdd: true
+                            )
+                        
+                    }
+                    
+                }
+            }) {
+                Label(
+                    "\(punchline.likes)", systemImage: hasReaction == "like" ? "hand.thumbsup.fill" : "hand.thumbsup"
+                )
+                    .foregroundColor(hasReaction == "like" ? .blue : .gray)
+                    .font(.caption)
+//                    .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
+            }
+            
+            Button(
+action: {
+                Task {
+                    
+                    if hasReaction == "like" {
+                        hasReaction = nil
+                        try await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: true,
+                                type: "punchline"
+                            )
+                        
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: true,
+                                shouldAdd: false
+                            )
+                        
+                    }
+                    
+                    if hasReaction == "dislike" {
+                        hasReaction = nil
+                        try await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: false,
+                                type: "punchline"
+                            )
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: false,
+                                shouldAdd: false
+                            )
+                        
+                    } else if hasReaction == nil {
+                        hasReaction = "dislike"
+                        
+                        try await userService.reactionsService
+                            .toggleReaction(
+                                userId: userService.currentUser?.id ?? "",
+                                id: punchline.id,
+                                isLike: false,
+                                type: "punchline"
+                            )
+                        try? await jokeService
+                            .togglePunchlineReaction(
+                                jokeId: jokeId,
+                                punchlineId: punchline.id,
+                                isLike: false,
+                                shouldAdd: true
+                            )
+                        
+                    }
+                    
+                }
+            }) {
+                Label(
+                    "\(punchline.dislikes)", systemImage: hasReaction == "dislike" ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+                )
+                    .foregroundColor(hasReaction == "dislike" ? .red : .gray)
+                    .font(.caption)
+//                    .opacity(viewModel.isUpdatingReaction ? 0.5 : 1.0)
+            }
+            
+            
+        }
+        .onAppear {
+            hasReaction = userService.reactionsService
+                .getCurrentPunchlineReaction(for: punchline.id)
+        }
     }
+}
+
+#Preview("Full Screen") {
+//    JokeCard(joke: Joke(id: "123", setup: "Setup Setup Setup Setup?", status: "approved", authorId: "123123123", createdAt: Date()))
+    JokeCard(
+        joke: Joke(
+            id: "123",
+            setup: "Setup Setup Setup Setup S S S S S S S S S S S S S S ?",
+            punchlines: [Punchline(id: "123", text: "Punch punch punch", status: "approved", authorId: "123123123")],
+            status: "approved",
+            authorId: "123123123",
+            createdAt: Date()
+        ), expandedJokeId: .constant("123")
+    )
+    .padding()
+//    TabBarView()
+        .environmentObject(AppService())
+        .environmentObject(JokeService())
+        .environmentObject(UserService())
+//        .environmentObject(LocalFavoritesService())
+//        .environmentObject(UserReactionsService())
+        .preferredColorScheme(.dark)
 }

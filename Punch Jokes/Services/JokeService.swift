@@ -35,13 +35,14 @@ class JokeService: ObservableObject {
         }
     }
     
+    @MainActor
     func loadData() async {
         isLoading = true
         loadCachedData()
         do {
             let snapshot = try await db.collection("jokes")
                 .order(by: "createdAt", descending: true)
-                .limit(to: pageSize)
+//                .limit(to: pageSize)
                 .getDocuments()
             
             var fetchedJokes: [Joke] = []
@@ -55,7 +56,7 @@ class JokeService: ObservableObject {
                 lastDocument = snapshot.documents.last
                 hasMoreJokes = !snapshot.documents.isEmpty
                 jokes = fetchedJokes
-                LocalStorage.saveJokes(fetchedJokes)
+//                LocalStorage.saveJokes(fetchedJokes)
                 
                 Task {
                     await preloadNextPage()
@@ -102,7 +103,7 @@ class JokeService: ObservableObject {
                     authorImages[authorId] = image
 //                    loadedImagesTimestamps[authorId] = Date()
                 }
-                LocalStorage.saveImage(image, forUserId: authorId)
+//                LocalStorage.saveImage(image, forUserId: authorId)
 //                UserDefaults.standard.set(loadedImagesTimestamps, forKey: "AuthorImagesTimestamps")
             }
         }
@@ -216,7 +217,7 @@ class JokeService: ObservableObject {
             hasMoreJokes = !snapshot.documents.isEmpty
             
             jokes.append(contentsOf: newJokes)
-            LocalStorage.saveJokes(jokes)
+//            LocalStorage.saveJokes(jokes)
             
             Task {
                 await preloadNextPage()
@@ -253,7 +254,7 @@ class JokeService: ObservableObject {
                 try punchlineDoc.data(as: Punchline.self)
             }
             
-            LocalStorage.savePunchlines(joke.punchlines, forJoke: joke.id)
+//            LocalStorage.savePunchlines(joke.punchlines, forJoke: joke.id)
             return joke
         } catch {
             handleError(error, message: "Failed to decode joke from document \(document.documentID)")
@@ -297,7 +298,7 @@ class JokeService: ObservableObject {
         joke.punchlines = [punchline]
         
         jokes.insert(joke, at: 0)
-        LocalStorage.saveJokes(jokes)
+//        LocalStorage.saveJokes(jokes)
         isLoading = false
     }
     
@@ -310,7 +311,7 @@ class JokeService: ObservableObject {
         
         if let index = jokes.firstIndex(where: { $0.id == jokeId }) {
             jokes[index].views += 1
-            LocalStorage.saveJokes(jokes)
+//            LocalStorage.saveJokes(jokes)
         }
     }
     
@@ -346,11 +347,11 @@ class JokeService: ObservableObject {
         }
         
         jokes[index] = newJoke
-        LocalStorage.saveJokes(jokes)
+//        LocalStorage.saveJokes(jokes)
         try await jokeRef.updateData(updates)
     }
     
-    func togglePunchlineReaction(_ jokeId: String, _ punchlineId: String, isLike: Bool, shouldAdd: Bool) async throws {
+    func togglePunchlineReaction(jokeId: String, punchlineId: String, isLike: Bool, shouldAdd: Bool) async throws {
         let punchlineRef = db.collection("jokes").document(jokeId).collection("punchlines").document(punchlineId)
         
         guard let jokeIndex = jokes.firstIndex(where: { $0.id == jokeId }),
@@ -385,7 +386,7 @@ class JokeService: ObservableObject {
         }
         
         jokes[jokeIndex].punchlines[punchlineIndex] = newPunchline
-        LocalStorage.saveJokes(jokes)
+//        LocalStorage.saveJokes(jokes)
     }
     
     // MARK: - Punchline Operations
@@ -412,7 +413,7 @@ class JokeService: ObservableObject {
         
         if let index = jokes.firstIndex(where: { $0.id == jokeId }) {
             jokes[index].punchlines.append(punchline)
-            LocalStorage.saveJokes(jokes)
+//            LocalStorage.saveJokes(jokes)
         }
         isLoading = false
     }
@@ -444,7 +445,7 @@ class JokeService: ObservableObject {
         try await storageRef.putDataAsync(imageData)
         
         authorImages[userId] = image
-        LocalStorage.saveImage(image, forUserId: userId)
+//        LocalStorage.saveImage(image, forUserId: userId)
     }
     
     func reloadAuthorImage(for userId: String) async {
@@ -456,7 +457,7 @@ class JokeService: ObservableObject {
             if let image = try await loadAuthorImage(for: userId) {
                 authorImages[userId] = image
 //                loadedImagesTimestamps[userId] = Date()
-                LocalStorage.saveImage(image, forUserId: userId)
+//                LocalStorage.saveImage(image, forUserId: userId)
             }
         } catch {
             handleError(error, message: "Error reloading image for author: \(userId)")

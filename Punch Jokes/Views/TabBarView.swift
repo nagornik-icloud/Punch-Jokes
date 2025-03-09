@@ -32,6 +32,8 @@ struct TabBarView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var appService: AppService
     
+    @Environment(\.scenePhase) private var scenePhase
+    
     let screens: [AppService.AppScreens] = [.allJokes, .favorites, .myJokes, .account]
 
     @State private var keyboardHeight: CGFloat = 0
@@ -91,6 +93,22 @@ struct TabBarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowClearCacheAlert"))) { _ in
             showingClearCacheAlert = true
+        }
+        .onChange(of: scenePhase) { (newPhase: ScenePhase) in
+            
+                if newPhase == .background {
+                    print("📲 Приложение свернуто (вышли в HomeScreen)")
+                    LocalStorage.saveJokes(jokeService.jokes)
+                    LocalStorage.saveUsers(userService.allUsers)
+                    if let user = userService.currentUser {
+                        LocalStorage.saveCurrentUser(user)
+                    }
+                    for (userId, image) in jokeService.authorImages {
+                        LocalStorage.saveImage(image, forUserId: userId)
+                    }
+                    print("📲 Сохранить данные в кеш")
+                }
+            
         }
         
     }

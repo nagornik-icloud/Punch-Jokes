@@ -74,40 +74,51 @@ class UserService: ObservableObject {
     
     func loadInitialData() async {
         print("👤 UserService: Starting initial data load")
+        
+        // 1️⃣ Начинаем фоновую задачу, чтобы iOS не убила процесс при сворачивании
+        let taskId = UIApplication.shared.beginBackgroundTask {
+            print("⏳ Время фоновой задачи истекло")
+        }
+        
         do {
             let snapshot = try await db.collection("users").getDocuments()
             print("👤 UserService: Retrieved \(snapshot.documents.count) user documents")
             
-            let fetchedUsers = try snapshot.documents.compactMap { document -> User? in
+            // 2️⃣ Декодируем пользователей и отсеиваем невалидные
+            var fetchedUsers: [User] = []
+            for document in snapshot.documents {
                 do {
                     let user = try document.data(as: User.self)
                     print("👤 UserService: Successfully decoded user: \(user.id)")
-                    return user
+                    fetchedUsers.append(user)
                 } catch {
                     print("👤 UserService: Failed to decode user from document \(document.documentID): \(error)")
-                    return nil
                 }
             }
             
-            if fetchedUsers != allUsers {
                 allUsers = fetchedUsers
                 LocalStorage.saveUsers(fetchedUsers)
-                print("👤 UserService: Updated users array with \(fetchedUsers.count) users")
                 
                 updateUserNameCache(with: fetchedUsers)
-            } else {
-                print("👤 UserService: No changes in users data")
-            }
             
+            
+            // 4️⃣ Загружаем текущего пользователя асинхронно
             if let currentUserId = auth.currentUser?.uid {
                 print("👤 UserService: Current user found, fetching details for ID: \(currentUserId)")
-                await fetchCurrentUser(userId: currentUserId)
+                
+                Task {
+                    await fetchCurrentUser(userId: currentUserId)
+                }
             }
             
         } catch {
             handleError(error, message: "Error during initial data load")
         }
+        
+        // 5️⃣ Завершаем фоновую задачу
+        UIApplication.shared.endBackgroundTask(taskId)
     }
+
     
     private func fetchCurrentUser(userId: String) async {
         print("👤 UserService: Fetching current user with ID: \(userId)")

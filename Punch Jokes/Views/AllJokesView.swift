@@ -55,6 +55,11 @@ struct AllJokesView: View {
                                     ProgressView()
                                         .padding()
                                 }
+                                
+                                // Add extra space at the bottom
+                                Spacer()
+                                    .frame(height: 100) // Adjust height as needed
+                                
                             }
                             .padding(.vertical)
                         }
