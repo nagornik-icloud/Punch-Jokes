@@ -3,6 +3,7 @@ import FirebaseFirestore
 
 struct Punchline: Identifiable, Codable, Equatable, Hashable {
     var id: String = ""
+    var jokeId: String = ""
     var text: String = ""
     var likes: Int = 0
     var dislikes: Int = 0
@@ -12,6 +13,7 @@ struct Punchline: Identifiable, Codable, Equatable, Hashable {
     
     enum CodingKeys: String, CodingKey {
         case id
+        case jokeId
         case text
         case likes
         case dislikes
@@ -20,10 +22,9 @@ struct Punchline: Identifiable, Codable, Equatable, Hashable {
         case createdAt
     }
     
-    init() {}
-    
-    init(id: String, text: String, likes: Int = 0, dislikes: Int = 0, status: String, authorId: String, createdAt: Date = Date()) {
+    init(id: String, jokeId: String, text: String, likes: Int = 0, dislikes: Int = 0, status: String, authorId: String, createdAt: Date = Date()) {
         self.id = id
+        self.jokeId = jokeId
         self.text = text
         self.likes = likes
         self.dislikes = dislikes

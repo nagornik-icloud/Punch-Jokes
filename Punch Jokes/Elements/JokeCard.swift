@@ -528,11 +528,12 @@ action: {
         joke: Joke(
             id: "123",
             setup: "Setup Setup Setup Setup S S S S S S S S S S S S S S ?",
-            punchlines: [Punchline(id: "123", text: "Punch punch punch", status: "approved", authorId: "123123123")],
+            punchlines: [Punchline(id: "123", jokeId: "123", text: "Punch punch punch", status: "approved", authorId: "123123123")],
             status: "approved",
             authorId: "123123123",
             createdAt: Date()
-        ), expandedJokeId: .constant("123")
+        ),
+ expandedJokeId: .constant("123")
     )
     .padding()
 //    TabBarView()

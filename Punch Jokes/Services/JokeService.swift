@@ -288,7 +288,16 @@ class JokeService: ObservableObject {
         let jokeRef = db.collection("jokes").document(joke.id)
         try await jokeRef.setData(from: joke)
         let punchId = UUID().uuidString
-        let punchline = Punchline(id: punchId, text: punchline, likes: 0, dislikes: 0, status: "pending", authorId: user.id, createdAt: Date())
+        let punchline = Punchline(
+            id: punchId,
+            jokeId: joke.id,
+            text: punchline,
+            likes: 0,
+            dislikes: 0,
+            status: "pending",
+            authorId: user.id,
+            createdAt: Date()
+        )
         
         try await jokeRef
             .collection("punchlines")
@@ -400,6 +409,7 @@ class JokeService: ObservableObject {
         isLoading = true
         let punchline = Punchline(
             id: UUID().uuidString,
+            jokeId: jokeId,
             text: text,
             likes: 0,
             dislikes: 0,
